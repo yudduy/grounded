@@ -1,5 +1,5 @@
 # Discovery: Grounded Discovery — Experiment Design
-> Status: Candidate | Iteration: 3 | Last updated: 2026-01-31
+> Status: Candidate | Iteration: 6 | Last updated: 2026-01-31
 
 ## Problem
 Design a feasible, well-controlled experiment testing whether **evolving context memory (ACE)** improves LLM-based equation recovery from interactive experiments in a differentiable physics simulator. The experiment must resist memorization, include proper baselines, and produce interpretable results.
@@ -147,6 +147,7 @@ For round r = 1..100:
 1. Will ACE playbook format suit mathematical insights? (Empirical — the experiment answers this)
 2. Will GPT-4o-mini have sufficient capacity for Level 2+ counterfactual laws? (Pilot with 1 environment)
 3. Is Warp's wp.Tape() usable with analytical functions or only Newton simulation? (Need to verify)
+4. Does the ACE playbook self-organize into non-trivial geometric/topological structure? (Levin extension — see below)
 
 ## Cross-Domain Analogies
 | Source Domain | Insight | Transfers? | Limitations |
@@ -155,6 +156,10 @@ For round r = 1..100:
 | NewtonBench Difficulty Levels | Principled taxonomy prevents false positive "discovery" | Yes — our environment design | NewtonBench is static, not interactive |
 | SGA's Bilevel | Gradient inner loop for constant fitting | Yes — our conditions C, D | SGA doesn't accumulate strategy knowledge |
 | Active Learning | Choose most informative samples to label | Yes — our experiment design step | Standard AL doesn't accumulate strategy |
+| Levin's Sorting Algorithms | Distributed agents exhibit "side quest" clustering by algotype | Testable — measure ACE playbook for unprescribed structure | Sorting is deterministic; LLM search is stochastic |
+| Platonic Representation Hypothesis | Different models converge to shared representations | Testable — compare playbooks across seeds/models | Convergence may just reflect task structure, not "Platonic space" |
+| Exaptation in Evolutionary Computation | Traits evolved for one function get co-opted for another | Testable — look for playbook bullets useful on novel environments | Requires multi-environment transfer, not in current design |
+| "Geometry of Thought" | Universal -0.4 oscillatory constant in CoT trajectories | Background — architectural signature, not strategy-level | Measures activation dynamics, not knowledge artifact structure |
 
 ## Rejected Hypotheses
 | Hypothesis | Why Rejected | What We Learned |
@@ -169,6 +174,91 @@ For round r = 1..100:
 4. **Control**: Zero-shot probe success <20% — confirms tasks aren't memorizable
 5. **Interesting negative**: If gradient hurts (C < A), replicates NewtonBench's code interpreter finding in a new setting
 6. **Qualitative**: Playbook trace shows emergent mathematical reasoning strategies
+
+## Extension: "Levin Test" — Measuring Emergent Structure in the Search Process
+
+### Motivation
+
+Michael Levin's sorting algorithm experiment (Zhang, Goldstein, Levin 2025, [SAGE](https://journals.sagepub.com/doi/10.1177/10597123241269740)) demonstrated that even deterministic sorting algorithms, when reframed as distributed agents, exhibit "side quests" — emergent clustering by algotype that was never prescribed. The Platonic Representation Hypothesis (Huh et al., ICML 2024, [arXiv:2405.07987](https://arxiv.org/abs/2405.07987)) independently showed that neural networks trained on different data/objectives converge to shared representations.
+
+**The question for our experiment:** Does the ACE playbook — a knowledge artifact evolving during search — self-organize into structure that was not prescribed by the ACE algorithm?
+
+### What's Published vs Speculative
+
+| Claim | Status | Source |
+|-------|--------|--------|
+| Sorting algorithms exhibit emergent clustering | **Published** | Zhang, Goldstein, Levin 2025 |
+| Neural nets converge to shared representations | **Published** | Huh et al. ICML 2024 |
+| CoT trajectories have universal oscillatory dynamics (-0.4) | **Published** | "Geometry of Thought" arXiv:2601.13358 |
+| Exaptation occurs in evolutionary computation | **Published** | IEEE 2009, Kashtan & Alon PNAS |
+| Protein generative models spontaneously produce symmetry | **Published** | bioRxiv 2025.11.03.686219 |
+| LLM latent spaces have shared geometric curriculum | **Published** | Ning et al. arXiv:2511.21594 |
+| KPZ universality in ML training dynamics | **Not published** | No evidence found |
+| Yang-Baxter structures emerge in ML | **Not published** | Only ML *for* solving YBE |
+| ACE playbooks develop algebraic structure | **Not published** | Tools exist, not yet applied |
+
+### Concrete "Levin Test" Measurements (v2 — revised after adversarial review)
+
+The original v1 proposed persistent homology on playbook bullet embeddings. An adversarial reviewer correctly identified fatal flaws: ~30 bullets in ~768D embedding space is far below the sample size needed for meaningful topology (concentration of measure destroys distance-scale information). The PRH analogy is also a category error — playbooks are output text artifacts, not learned representations. See LOG.md iteration 5 for full critique.
+
+**Revised approach (v3):** After two adversarial rounds, the honest scope is narrow: test for **consistent inductive biases** in ACE's curator (not "universality"), detect **functional side effects** via intervention (not passive observation), and probe **transfer** with proper controls.
+
+**L1. Strategy Profile Analysis (Descriptive, Not Statistical)**
+- Code each bullet into taxonomy: {structural guess, parameter fitting, exploration heuristic, noise/irrelevant}
+- Report strategy distributions as descriptive statistics across seeds
+- **Honest limitation**: 3 seeds × ~30 bullets = ~90 data points total, insufficient for χ² test (need 20+ seeds for distributional claims). Report distributions but do NOT claim statistical convergence
+- If the pilot reveals interesting patterns, propose a follow-up with 20+ seeds
+
+**L2. Side Quest Intervention (Causal, Not Observational)**
+- Identify persistent bullets with helpful_count=0 at round 50
+- **Intervention**: forcibly remove them, continue running → does performance degrade on held-out test?
+- If yes: these bullets contribute indirectly (genuine latent utility)
+- If no: curator inertia (null hypothesis confirmed)
+- This is causal, not observational — addresses the confound that the original L2 couldn't distinguish inertia from retention
+- Cost: additional ~50 LLM calls per intervention run (cheap)
+
+**L3. Transfer Probe (Exaptation Test, with ablated control)**
+- After training on environment E₁, apply the final playbook to environment E₂
+- Controls: (a) static prompt, (b) playbook trained on E₂, (c) random strategy set, **(d) ablated playbook** — same structure and number of bullets, content scrambled within category
+- Control (d) tests whether playbook *format* helps vs playbook *content*
+- Run on 3 environment pairs (E₁→E₂) to see if effect generalizes
+
+**L4. Learning Curve Shape Comparison (Qualitative)**
+- Plot MSE vs round for all conditions, visually inspect for qualitative differences
+- **Do NOT fit to functional forms and claim "universality classes"** — Clauset et al. 2009 showed distinguishing power laws from alternatives requires hundreds of samples. We have ~100 rounds.
+- Report: do ACE conditions show step-like improvements (insight-driven) vs smooth decay (gradient-driven)? This is a qualitative observation, not a statistical claim.
+
+**L5. Dropped.** Diversity dynamics tracking is methodologically sound but uninformative — any system with selection pressure shows decreasing diversity vs random accumulation. This tells us the curator curates, which we already know.
+
+### What This Adds to the Paper
+
+The v3 experiment already tests whether ACE helps (primary hypothesis). The Levin extension asks a deeper question: **what is the structure of the knowledge ACE builds, and does it exhibit emergent organization?** This transforms the paper from "ACE helps on equation discovery" (incremental) to "we can measure emergent structure in LLM knowledge artifacts" (novel contribution).
+
+### Survived Attacks (Levin Extension)
+- **"Persistent homology on ~30 points in ~768D is meaningless" (verifier 3, 90%)**: Dropped TDA entirely. Replaced with behavioral-level measurements.
+- **"PRH analogy is a category error" (verifier 3, 85%)**: Dropped "Platonic" framing. Use "consistent inductive biases" instead.
+- **"Side quests are just curator inertia" (verifier 3, 80%; skeptic 4)**: Added intervention experiment — forcibly remove zero-helpful bullets and measure performance impact. Causal, not observational.
+- **"3 seeds is catastrophically underpowered for χ²" (skeptic 4)**: Downgraded strategy analysis to descriptive, not statistical. Propose 20+ seed follow-up if patterns emerge.
+- **"Universality class via curve fitting misuses the term" (skeptic 4)**: Dropped statistical claim. Qualitative visual comparison only.
+- **"Transfer probe needs ablated control" (skeptic 4)**: Added control (d) — scrambled playbook with same structure.
+
+### Falsifiability
+
+The Levin extension is falsifiable:
+- If removing zero-helpful bullets doesn't hurt performance → curator inertia confirmed, no side quests
+- If transfer to new environments fails vs all controls including ablated playbook → no exaptation
+- If strategy profiles show no consistent patterns across seeds → no inductive bias signal
+- Any of these null results is informative and publishable
+
+### Honest Assessment
+
+**What's grounded:** Strategy coding, transfer probes, and learning curve analysis are standard methods. The null models (random curator, random strategy set) make results interpretable. The universality class framing connects to published work on halting time universality [arXiv:1511.06444](https://arxiv.org/abs/1511.06444).
+
+**What's speculative:** Whether ACE playbooks exhibit ANY emergent structure beyond what the task constraints and LLM output distribution trivially explain. The sorted-array clustering is a very specific mathematical artifact of specific algorithms. LLM-generated strategy text may not exhibit analogous structure. The "Platonic space" framing is philosophically loaded — we use "universality" instead (does the system converge to the same behavior regardless of initialization?).
+
+**What was tried and rejected:** (1) Persistent homology on playbook embeddings (verifier 3, LOG.md iter 5: ~30 points in ~768D underpowered). (2) CKA on ~30 bullets (meaningless variance). (3) PRH analogy (category error). (4) χ² test on strategy distributions with 3 seeds (skeptic 4, LOG.md iter 6: need 20+ seeds). (5) "Universality class" via curve fitting (skeptic 4: misuse of term, need hundreds of samples per Clauset et al. 2009). (6) Diversity dynamics tracking (skeptic 4: predetermined result).
+
+**Confidence in finding something:** 30. Lowered from 35 after second adversarial round. The intervention experiment (L2) is the strongest measurement — it's causal and doesn't require large sample sizes. Transfer probe (L3) is informative with ablated control. Strategy profiles (L1) are descriptive only.
 
 ## Implementation Plan (4 weeks)
 
@@ -192,4 +282,5 @@ For round r = 1..100:
 **Week 4: Analysis + Write-up**
 - Statistical comparisons (paired tests, learning curves)
 - Playbook trace analysis (qualitative coding)
+- Levin extension analysis: persistent homology, cross-seed CKA, side quest detection, transfer probe
 - Write CS224N paper: "Context Engineering for Interactive Equation Discovery"
