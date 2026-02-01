@@ -113,6 +113,18 @@ class TemplateLibrary:
             "n_inputs": 2,
             "description": "a + b*x2*sqrt(x1^2+x2^2) + c*x1 + d*x2",
         },
+        "exponential_product": {
+            "param_names": ["a", "b", "c", "d", "e"],
+            "n_params": 5,
+            "n_inputs": 2,
+            "description": "a * x1^b * exp(c * |x2|) + d * x1^e",
+        },
+        "fractional_magnitude": {
+            "param_names": ["a", "b", "c", "d", "e"],
+            "n_params": 5,
+            "n_inputs": 2,
+            "description": "a + b * (x1^2 + x2^2)^c * sign(x2) + d*x1 + e*x2",
+        },
     }
 
     @staticmethod
@@ -163,6 +175,13 @@ class TemplateLibrary:
             x1, x2 = inputs[:, 0], inputs[:, 1]
             mag = np.sqrt(x1**2 + x2**2 + 1e-10)
             return p[0] + p[1]*x2*mag + p[2]*x1 + p[3]*x2
+        elif name == "exponential_product":
+            x1, x2 = inputs[:, 0], inputs[:, 1]
+            return p[0] * (np.abs(x1) + 1e-10)**p[1] * np.exp(p[2] * np.abs(x2)) + p[3] * (np.abs(x1) + 1e-10)**p[4]
+        elif name == "fractional_magnitude":
+            x1, x2 = inputs[:, 0], inputs[:, 1]
+            mag_sq = x1**2 + x2**2 + 1e-10
+            return p[0] + p[1] * mag_sq**p[2] * np.sign(x2) + p[3]*x1 + p[4]*x2
         else:
             raise ValueError(f"Unknown template: {name}")
 
@@ -196,7 +215,7 @@ class TemplateLibrary:
             except Exception:
                 return 1e10
 
-        bounds = [(-10.0, 10.0)] * n_params
+        bounds = [(-50.0, 50.0)] * n_params
         result = minimize(loss, initial_params, method="L-BFGS-B",
                           bounds=bounds,
                           options={"maxiter": max_iter, "ftol": 1e-9})
@@ -263,6 +282,16 @@ class TemplateLibrary:
             elif name == "magnitude_coupled":
                 if ("sqrt" in expr_lower or "mag" in expr_lower) and n_inputs >= 2:
                     score += 0.6
+            elif name == "exponential_product":
+                if "exp" in expr_lower and n_inputs >= 2:
+                    score += 0.6
+                if re.search(r'\*\*\s*[2-5]|\^[2-5]', expr_lower):
+                    score += 0.2
+            elif name == "fractional_magnitude":
+                if re.search(r'\*\*\s*0\.\d|pow.*0\.\d|\^0\.\d', expr_lower) and n_inputs >= 2:
+                    score += 0.7
+                if "sign" in expr_lower:
+                    score += 0.2
 
             # Dimensionality bonus
             if tmpl["n_inputs"] == n_inputs:
@@ -299,6 +328,9 @@ class TemplateLibrary:
                  max_templates: int = 3, max_iter: int = 200) -> FitResult:
         """Match expression to templates, fit top candidates, return best.
 
+        Delegates to gradient.fitter.fit_expression which includes
+        multiple restarts and Nelder-Mead fallback.
+
         Args:
             expr_str: LLM expression string
             inputs: shape (n, d)
@@ -308,14 +340,6 @@ class TemplateLibrary:
         Returns:
             Best FitResult across all tried templates
         """
-        n_inputs = inputs.shape[1]
-        matches = cls.match_expression(expr_str, n_inputs)[:max_templates]
-
-        best_result = None
-        for match in matches:
-            result = cls.fit(match.template_name, inputs, targets,
-                             initial_params=match.initial_params, max_iter=max_iter)
-            if best_result is None or result.train_mse < best_result.train_mse:
-                best_result = result
-
-        return best_result
+        from gradient.fitter import fit_expression
+        return fit_expression(expr_str, inputs, targets,
+                              max_templates=max_templates, max_iter=max_iter)

@@ -2,6 +2,10 @@
 
 Adapts the ACE framework's DataProcessor interface for evaluating
 mathematical equation predictions against ground truth.
+
+Note: This class is not used by ACECondition directly. It exists for
+external usage with ACE.run() when running the full ACE pipeline
+standalone (e.g., offline/online mode via eval scripts).
 """
 import numpy as np
 from typing import Dict, List

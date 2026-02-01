@@ -6,6 +6,7 @@ LLM's guesses don't match the actual ground truth structure.
 """
 import sys
 import logging
+import warnings
 import numpy as np
 from pathlib import Path
 from typing import Dict, List
@@ -52,7 +53,10 @@ def _structural_similarity(expr_str: str, env, n_test: int = 50) -> float:
         local_vars = {"np": np}
         for i, name in enumerate(env.input_names):
             local_vars[name] = env._test_inputs[:, i]
-        pred = np.asarray(eval(expr_str, {"__builtins__": {}}, local_vars), dtype=np.float64)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pred = np.asarray(eval(expr_str, {"__builtins__": {}}, local_vars), dtype=np.float64)
         truth = env._test_outputs
 
         # Compute R^2

@@ -83,10 +83,10 @@ class BaseEnvironment(abc.ABC):
         return y
 
     def _generate_test_set(self):
-        """Generate held-out test set of 50 points."""
+        """Generate held-out test set of 200 points."""
         test_rng = np.random.RandomState(self.seed + 99999)
         spec = self.spec
-        n_test = 50
+        n_test = 200
         d = len(spec.input_names)
         test_inputs = np.zeros((n_test, d))
         for i, name in enumerate(spec.input_names):

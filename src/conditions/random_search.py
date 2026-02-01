@@ -55,7 +55,7 @@ class RandomSearchCondition:
                 return f"({left} / np.where(np.abs({right}) < 1e-8, 1.0, {right}))"
             return f"({left} {op} {right})"
         else:
-            fn = self.rng.choice(["np.sin", "np.cos", "np.exp", "np.log", "np.sqrt", "np.abs"])
+            fn = self.rng.choice(["np.sin", "np.cos", "np.exp", "np.log", "np.sqrt", "np.abs", "np.sign"])
             arg = self._random_expr(var_names, depth + 1)
             if fn in ("np.log", "np.sqrt"):
                 return f"{fn}(np.abs({arg}) + 1e-8)"

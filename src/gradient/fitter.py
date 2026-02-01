@@ -42,35 +42,37 @@ def fit_expression(expr_str: str, inputs: np.ndarray, targets: np.ndarray,
             except Exception as e:
                 logger.debug(f"Fit failed for {match.template_name} restart {restart}: {e}")
 
-    # Nelder-Mead fallback if L-BFGS-B produced poor results
-    if best_result is not None and best_result.train_mse > 1.0:
+    # Nelder-Mead fallback if L-BFGS-B produced poor results (normalized MSE threshold)
+    target_var = np.var(targets)
+    nmse = (best_result.train_mse / target_var) if (best_result is not None and target_var > 0) else float("inf")
+    if best_result is not None and nmse > 0.01:
+        from scipy.optimize import minimize as scipy_minimize
+        n_nm_restarts = 3
         for match in matches:
-            try:
-                from environments.kernels import TemplateLibrary
-                from scipy.optimize import minimize as scipy_minimize
+            for nm_restart in range(n_nm_restarts):
+                try:
+                    def loss(p, _name=match.template_name):
+                        try:
+                            pred = TemplateLibrary.evaluate_template(_name, p, inputs)
+                            mse = np.mean((pred - targets) ** 2)
+                            return 1e10 if (np.isnan(mse) or np.isinf(mse)) else mse
+                        except Exception:
+                            return 1e10
 
-                def loss(p):
-                    try:
-                        pred = TemplateLibrary.evaluate_template(match.template_name, p, inputs)
-                        mse = np.mean((pred - targets) ** 2)
-                        return 1e10 if (np.isnan(mse) or np.isinf(mse)) else mse
-                    except Exception:
-                        return 1e10
-
-                init = np.random.randn(len(match.param_names)) * 0.5
-                res = scipy_minimize(loss, init, method="Nelder-Mead",
-                                     options={"maxiter": 500, "xatol": 1e-8})
-                if res.fun < best_result.train_mse:
-                    final_params = res.x
-                    best_result = FitResult(
-                        template_name=match.template_name,
-                        params=final_params,
-                        param_names=match.param_names,
-                        train_mse=float(res.fun),
-                        predict_fn=lambda x, n=match.template_name, p=final_params: TemplateLibrary.evaluate_template(n, p, x),
-                    )
-            except Exception as e:
-                logger.debug(f"Nelder-Mead fallback failed: {e}")
+                    init = np.random.randn(len(match.param_names)) * 0.5
+                    res = scipy_minimize(loss, init, method="Nelder-Mead",
+                                         options={"maxiter": 500, "xatol": 1e-8})
+                    if res.fun < best_result.train_mse:
+                        final_params = res.x
+                        best_result = FitResult(
+                            template_name=match.template_name,
+                            params=final_params,
+                            param_names=match.param_names,
+                            train_mse=float(res.fun),
+                            predict_fn=lambda x, n=match.template_name, p=final_params: TemplateLibrary.evaluate_template(n, p, x),
+                        )
+                except Exception as e:
+                    logger.debug(f"Nelder-Mead fallback failed for {match.template_name} restart {nm_restart}: {e}")
 
     return best_result
 

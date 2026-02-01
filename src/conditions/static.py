@@ -3,6 +3,7 @@
 Fixed system prompt, no playbook, no gradient fitting.
 LLM proposes equations given accumulated data points.
 """
+import re
 import sys
 import ast
 import logging
@@ -68,6 +69,10 @@ class StaticCondition:
             text = result.content.strip()
             # Remove markdown fences
             text = text.replace("```python", "").replace("```", "").strip()
+            # Extract the list using regex before literal_eval
+            m = re.search(r'(\[\s*\[.*?\]\s*\])', text, re.DOTALL)
+            if m:
+                text = m.group(1)
             parsed = ast.literal_eval(text)
             return np.array(parsed, dtype=np.float64)
         except Exception:

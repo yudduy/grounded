@@ -7,6 +7,9 @@ Usage:
     python3 src/run_experiment.py --skip-prelim    # skip straight to campaign
 """
 import sys
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning, module='google')
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='google')
 import argparse
 import logging
 import traceback

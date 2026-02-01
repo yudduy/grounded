@@ -35,7 +35,10 @@ def _normalize_math(expr: str) -> str:
     expr = expr.strip().rstrip(';').rstrip('?').rstrip('.').strip()
     expr = re.sub(r'\s+or\s+\w+$', '', expr)
     expr = re.sub(r'\s+etc\.?$', '', expr)
-    expr = re.sub(r'\.\s*\w+$', '', expr)
+    _math_fns = {'exp', 'log', 'sin', 'cos', 'tan', 'sqrt', 'abs', 'sign', 'pi', 'np'}
+    m = re.search(r'\.\s*([A-Za-z]\w*)$', expr)
+    if m and m.group(1).lower() not in _math_fns and not m.group(1)[0].isdigit():
+        expr = expr[:m.start()]
     expr = re.sub(r'\s+[A-Z][a-z]+.*$', '', expr)
     for fn in ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'abs', 'sign']:
         expr = re.sub(rf'(?<!\w)(?<!np\.){fn}\s*\(', f'{fn}(', expr)
@@ -45,8 +48,12 @@ def _normalize_math(expr: str) -> str:
 def _common_aliases(input_names: List[str]) -> dict[str, str]:
     """Generate common variable aliases (t->time, x->position, etc.)."""
     aliases = {}
+    first_letter_counts = {}
     for name in input_names:
-        aliases[name[0]] = name
+        first_letter_counts[name[0]] = first_letter_counts.get(name[0], 0) + 1
+    for name in input_names:
+        if first_letter_counts[name[0]] == 1:
+            aliases[name[0]] = name
         if name == "time":
             aliases["t"] = "time"
         elif name == "position":
@@ -81,6 +88,7 @@ def _try_eval(expr: str, input_names: List[str]) -> bool:
                 local_vars[alias] = local_vars[real]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
             result = eval(expr, {"__builtins__": {}}, local_vars)
         result = np.asarray(result, dtype=np.float64)
         return np.all(np.isfinite(result)) and result.size > 0
@@ -219,6 +227,7 @@ def parse_expression(expr_str: str, input_names: List[str]
                 local_vars[alias] = inputs[:, idx]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
             result = eval(cleaned, {"__builtins__": {}}, local_vars)
         result = np.asarray(result, dtype=np.float64)
         if result.ndim == 0:

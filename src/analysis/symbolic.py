@@ -16,7 +16,8 @@ except ImportError:
 
 def check_symbolic_match(discovered: str, ground_truth: str,
                          variable_names: list,
-                         tol: float = 1e-4) -> Dict:
+                         tol: float = 1e-4,
+                         input_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> Dict:
     """Check if discovered expression matches ground truth symbolically.
 
     Args:
@@ -53,7 +54,14 @@ def check_symbolic_match(discovered: str, ground_truth: str,
         if not matched:
             max_diff = 0.0
             for _ in range(20):
-                test_vals = {s: np.random.uniform(-2, 2) for s in syms}
+                test_vals = {}
+                for s in syms:
+                    name = str(s)
+                    if input_ranges and name in input_ranges:
+                        lo, hi = input_ranges[name]
+                        test_vals[s] = np.random.uniform(lo, hi)
+                    else:
+                        test_vals[s] = np.random.uniform(-2, 2)
                 try:
                     num_diff = float(abs(N(diff.subs(test_vals))))
                     max_diff = max(max_diff, num_diff)

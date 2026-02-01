@@ -7,6 +7,7 @@ to be valid (ensures the task is non-trivial).
 import sys
 import json
 import logging
+import warnings
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -90,7 +91,10 @@ def run_zero_shot_probe(env, llm: LLMClient, n_points: int = 20,
             local_vars = {"np": np}
             for i, name in enumerate(env.input_names):
                 local_vars[name] = env._test_inputs[:, i]
-            pred = eval(expr_str, {"__builtins__": {}}, local_vars)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                warnings.simplefilter("ignore", DeprecationWarning)
+                pred = eval(expr_str, {"__builtins__": {}}, local_vars)
             pred = np.asarray(pred, dtype=np.float64)
             mse = float(np.mean((pred - env._test_outputs) ** 2))
             mses.append(mse)

@@ -19,6 +19,7 @@ from environments.base import BaseEnvironment
 from loop.orchestrator import LoopState, RoundResult
 from loop import prompt_templates as pt
 from conditions.static import StaticCondition
+from ace_adapter.drsr_adapter import categorize_equation, build_pni_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -44,31 +45,27 @@ class DrSRCondition(StaticCondition):
         self._positive = []
         self._negative = []
         self._invalid = []
+        self._insights = []
         self._max_entries = max_entries_per_section
         self._prev_best_mse = float("inf")
 
     def _build_playbook(self) -> str:
         """Build P/N/I playbook from accumulated entries."""
-        sections = []
-        sections.append("## POSITIVE (equations that improved MSE)")
-        for entry in self._positive[-self._max_entries:]:
-            sections.append(f"  {entry}")
-        sections.append("")
-        sections.append("## NEGATIVE (equations that worsened MSE)")
-        for entry in self._negative[-self._max_entries:]:
-            sections.append(f"  {entry}")
-        sections.append("")
-        sections.append("## INVALID (equations that failed to parse/evaluate)")
-        for entry in self._invalid[-self._max_entries:]:
-            sections.append(f"  {entry}")
+        playbook = build_pni_playbook(
+            self._positive, self._negative, self._invalid,
+            max_per_section=self._max_entries,
+        )
 
-        if hasattr(self, '_insights') and self._insights:
-            sections.append("")
-            sections.append("## INSIGHTS (extracted patterns from successful equations)")
+        if self._insights:
+            insight_lines = [
+                "",
+                "## INSIGHTS (extracted patterns from successful equations)",
+            ]
             for insight in self._insights[-5:]:
-                sections.append(f"  {insight}")
+                insight_lines.append(f"  {insight}")
+            playbook += "\n" + "\n".join(insight_lines)
 
-        return "\n".join(sections)
+        return playbook
 
     def hypothesize(self, env: BaseEnvironment, state: LoopState,
                     round_num: int, llm: LLMClient) -> str:
@@ -114,27 +111,34 @@ class DrSRCondition(StaticCondition):
         expr = round_result.expression_clean or "(none)"
         mse = round_result.test_mse
 
-        if round_result.parse_error:
-            self._invalid.append(f"{expr} (error: {round_result.parse_error})")
-            category = "INVALID"
-        elif mse < self._prev_best_mse:
-            self._positive.append(f"{expr} (MSE={mse:.6f})")
+        category, entry = categorize_equation(
+            expr, mse, self._prev_best_mse,
+            parse_error=round_result.parse_error,
+        )
+        if category == "INVALID":
+            self._invalid.append(entry)
+        elif category == "POSITIVE":
+            self._positive.append(entry)
             self._prev_best_mse = mse
-            category = "POSITIVE"
         else:
-            self._negative.append(f"{expr} (MSE={mse:.6f})")
-            category = "NEGATIVE"
+            self._negative.append(entry)
 
-        # Inductive idea extraction every 5 rounds
-        if round_result.round_num % 5 == 0 and len(self._positive) >= 3:
-            pos_sample = "\n".join(self._positive[-5:])
-            insight_sys = "Analyze these successful equations. Extract 2-3 actionable insights about what functional forms or strategies work."
-            insight_msg = f"Recent POSITIVE equations:\n{pos_sample}"
+        # Inductive idea extraction every 5 rounds from all 3 categories
+        if round_result.round_num % 5 == 0 and (len(self._positive) + len(self._negative) + len(self._invalid)) >= 3:
+            sections = []
+            if self._positive:
+                sections.append("POSITIVE (what works):\n" + "\n".join(self._positive[-5:]))
+            if self._negative:
+                sections.append("NEGATIVE (what to avoid):\n" + "\n".join(self._negative[-5:]))
+            if self._invalid:
+                sections.append("INVALID (common errors):\n" + "\n".join(self._invalid[-5:]))
+            insight_sys = ("Analyze these categorized equations. Extract 2-3 actionable insights: "
+                           "what functional forms work (from positives), what to avoid (from negatives), "
+                           "and common errors to prevent (from invalids).")
+            insight_msg = "\n\n".join(sections)
             try:
                 insight_result = llm.query(msg=insight_msg, system_msg=insight_sys)
                 if insight_result and insight_result.content:
-                    if not hasattr(self, '_insights'):
-                        self._insights = []
                     self._insights.append(f"[Round {round_result.round_num}] {insight_result.content.strip()}")
             except Exception:
                 pass
