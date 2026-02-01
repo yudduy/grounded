@@ -351,3 +351,7 @@ Newton can serve as the evaluation function for either framework when evolving r
 ## Session Notes
 
 - **Thompson Sampling in search_augmented_ace_poc.ipynb**: Budget docstring was wrong (said 99, actual is 105 calls). Fixed. The Beta-Bernoulli conjugate update and argmax-of-samples selection are textbook correct. Key limitation: fixed pool after seed phase means no online adaptation. Consider discounted TS (gamma=0.95) if bullet tag drift matters, and dynamic arm addition for longer runs.
+- **PUCT backprop bug**: When expanding a node, `backprop(child, reward)` gave the child credit for reward earned by the parent's playbook evaluation. Fixed: always backprop to the leaf (the node whose playbook was actually evaluated). New children start with optimistic Q=0.5 prior.
+- **PUCT Bayesian Q-estimator**: Uses `(s+1)/(n+2)` which is correct Beta posterior mean for binary rewards, but reward_history contains fractional batch accuracies (e.g., 0.67). Still works as a shrinkage estimator but isn't a proper Beta posterior. Document this if publishing.
+- **Progressive widening k=1**: Standard PW uses `k * N^alpha` with k=10. Our k=1 is deliberately conservative since each expansion costs a curate call. This is a justified design choice, not a bug.
+- **Frontier strategies to consider**: AB-MCTS (adaptive wider-vs-deeper branching, Sakana AI 2025), Process Reward Models for compute-optimal tree search (ICLR 2025), Fetch state-merging for dedup of semantically similar playbook nodes, OPTS bandit-based prompt strategy selection (March 2025).
