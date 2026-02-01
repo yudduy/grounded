@@ -43,6 +43,7 @@ class StaticCondition:
             input_names=env.input_names,
             input_ranges=ranges_str,
             input_args=input_args,
+            n_points=self.points_per_round,
             playbook_section="",
         )
         obs_summary = pt.format_observation_summary(

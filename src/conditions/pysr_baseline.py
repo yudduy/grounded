@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Optional, Callable
 
 _repo_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_repo_root / "ShinkaEvolve"))
 sys.path.insert(0, str(_repo_root / "src"))
 
+from shinka.llm.llm import LLMClient
 from environments.base import BaseEnvironment
 from loop.orchestrator import LoopState, RoundResult
 from conditions.static import StaticCondition

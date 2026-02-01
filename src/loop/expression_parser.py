@@ -5,7 +5,7 @@ numpy vs math functions, reasoning model chain-of-thought output.
 """
 import re
 import numpy as np
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 
 SAFE_GLOBALS = {
@@ -41,7 +41,7 @@ def _normalize_math(expr: str) -> str:
     return expr
 
 
-def _common_aliases(input_names: List[str]) -> Dict[str, str]:
+def _common_aliases(input_names: List[str]) -> dict[str, str]:
     """Generate common variable aliases (t->time, x->position, etc.)."""
     aliases = {}
     for name in input_names:

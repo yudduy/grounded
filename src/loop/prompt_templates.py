@@ -39,10 +39,14 @@ Valid ranges: {input_ranges}
 
 {playbook_section}
 
-Your task: propose a mathematical equation y = f({input_args}) that best fits
-all observations. Use Python/numpy syntax (np.sin, np.cos, np.sqrt, np.exp, np.log, etc.).
-IMPORTANT: Use NUMERIC coefficients only (e.g., -4.9 * time**2, not A * time**2).
-Do NOT use symbolic parameters like A, B, C — estimate actual numbers from the data."""
+Propose a mathematical equation y = f({input_args}) that fits all observations.
+Use Python/numpy syntax: np.sin, np.cos, np.sqrt, np.exp, np.log, **, etc.
+
+RULES (follow exactly):
+1. ALL coefficients must be NUMBERS you estimated from the data. Never write a, b, c, A, B, C, etc.
+   WRONG: a * time**2 + b
+   RIGHT: -4.9 * time**2 + 3.1
+2. Your LAST line must be ONLY the expression. No words, no "y =", no explanation after it."""
 
 HYPOTHESIZE_USER = """Round {round_num}/{total_rounds}.
 
@@ -53,10 +57,9 @@ All observations ({n_obs} points):
 
 {reflection_section}
 
-Propose your best equation for y = f({input_args}).
-IMPORTANT: Your final answer MUST be on the LAST line, as a plain Python/numpy expression.
-No y= prefix, no explanation — just the expression on the last line.
-Example final line: 2.5 * time**2 - 0.3 * np.sin(y_offset)"""
+Write your Python/numpy expression for y = f({input_args}) on the last line.
+ALL numbers, NO letters for coefficients. Example:
+-4.9 * time**2 + 0.5 * y_offset - 3.2 * np.exp(-0.1 * time)"""
 
 
 REFLECT_SYSTEM = """You are a scientist reflecting on your equation discovery process.

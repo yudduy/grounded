@@ -7,10 +7,8 @@ Usage:
     python3 src/run_experiment.py --skip-prelim    # skip straight to campaign
 """
 import sys
-import os
 import argparse
 import logging
-import time
 import traceback
 from pathlib import Path
 
@@ -208,7 +206,7 @@ def main():
     llm = LLMClient(
         model_names=[config.llm_model],
         temperatures=0.7,
-        max_tokens=2048,
+        max_tokens=4096,
     )
     logger.info(f"LLM model: {config.llm_model}")
 
