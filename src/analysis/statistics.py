@@ -8,6 +8,7 @@ import sqlite3
 import numpy as np
 from typing import Dict, List, Tuple
 from scipy import stats
+from scipy.stats import false_discovery_control
 
 
 def load_results(db_path: str) -> List[Dict]:
@@ -56,8 +57,10 @@ def paired_t_test(results: List[Dict], cond_a: str, cond_b: str,
     diff = a - b
     t_stat, p_value = stats.ttest_rel(a, b)
     mean_diff = float(np.mean(diff))
-    pooled_std = float(np.std(diff, ddof=1))
-    cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0.0
+    std_a = float(np.std(a, ddof=1))
+    std_b = float(np.std(b, ddof=1))
+    pooled_std_av = (std_a + std_b) / 2.0
+    cohens_d = mean_diff / pooled_std_av if pooled_std_av > 0 else 0.0
 
     return {
         "cond_a": cond_a,
@@ -93,7 +96,7 @@ def summary_table(results: List[Dict]) -> Dict:
 
 
 def run_all_comparisons(results: List[Dict]) -> List[Dict]:
-    """Run paired t-tests for key comparisons."""
+    """Run paired t-tests for key comparisons with FDR correction."""
     comparisons = [
         ("A", "B"),  # Static vs ACE
         ("A", "C"),  # Static vs Gradient
@@ -103,4 +106,20 @@ def run_all_comparisons(results: List[Dict]) -> List[Dict]:
         ("C", "D"),  # Gradient vs ACE+Gradient
         ("B", "E"),  # ACE vs DrSR
     ]
-    return [paired_t_test(results, a, b) for a, b in comparisons]
+    results_list = [paired_t_test(results, a, b) for a, b in comparisons]
+
+    # Benjamini-Hochberg FDR correction
+    p_values = [r.get("p_value", 1.0) for r in results_list if "error" not in r]
+    if len(p_values) >= 2:
+        try:
+            adjusted = false_discovery_control(p_values, method='bh')
+            idx = 0
+            for r in results_list:
+                if "error" not in r:
+                    r["p_value_adjusted"] = float(adjusted[idx])
+                    r["significant_adjusted"] = float(adjusted[idx]) < 0.05
+                    idx += 1
+        except Exception:
+            pass  # scipy version may not have this
+
+    return results_list
