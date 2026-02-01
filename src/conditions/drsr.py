@@ -61,6 +61,13 @@ class DrSRCondition(StaticCondition):
         sections.append("## INVALID (equations that failed to parse/evaluate)")
         for entry in self._invalid[-self._max_entries:]:
             sections.append(f"  {entry}")
+
+        if hasattr(self, '_insights') and self._insights:
+            sections.append("")
+            sections.append("## INSIGHTS (extracted patterns from successful equations)")
+            for insight in self._insights[-5:]:
+                sections.append(f"  {insight}")
+
         return "\n".join(sections)
 
     def hypothesize(self, env: BaseEnvironment, state: LoopState,
