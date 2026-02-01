@@ -101,6 +101,18 @@ class TemplateLibrary:
             "n_inputs": 3,
             "description": "a*x1*sin(b*x2) + c*x3*cos(d*x1) + e*x2*x3",
         },
+        "piecewise_quadratic": {
+            "param_names": ["a", "b", "c", "d"],
+            "n_params": 4,
+            "n_inputs": 2,
+            "description": "a*x1 + b*sign(x2)*x2^2 + c*x1*x2 + d",
+        },
+        "magnitude_coupled": {
+            "param_names": ["a", "b", "c", "d"],
+            "n_params": 4,
+            "n_inputs": 2,
+            "description": "a + b*x2*sqrt(x1^2+x2^2) + c*x1 + d*x2",
+        },
     }
 
     @staticmethod
@@ -129,7 +141,7 @@ class TemplateLibrary:
             return p[0]*x1*np.sin(p[1]*x2) + p[2]*x2*np.cos(p[3]*x1) + p[4]
         elif name == "power_law":
             x1, x2 = inputs[:, 0], inputs[:, 1]
-            return p[0] * np.abs(x1)**p[1] * np.abs(x2)**p[2] + p[3]
+            return p[0] * (np.abs(x1) + 1e-10)**p[1] * (np.abs(x2) + 1e-10)**p[2] + p[3]
         elif name == "rational":
             x = inputs[:, 0]
             denom = p[2]*x**2 + p[3]*x + 1.0
@@ -144,6 +156,13 @@ class TemplateLibrary:
         elif name == "trig_3d":
             x1, x2, x3 = inputs[:, 0], inputs[:, 1], inputs[:, 2]
             return p[0]*x1*np.sin(p[1]*x2) + p[2]*x3*np.cos(p[3]*x1) + p[4]*x2*x3
+        elif name == "piecewise_quadratic":
+            x1, x2 = inputs[:, 0], inputs[:, 1]
+            return p[0]*x1 + p[1]*np.sign(x2)*x2**2 + p[2]*x1*x2 + p[3]
+        elif name == "magnitude_coupled":
+            x1, x2 = inputs[:, 0], inputs[:, 1]
+            mag = np.sqrt(x1**2 + x2**2 + 1e-10)
+            return p[0] + p[1]*x2*mag + p[2]*x1 + p[3]*x2
         else:
             raise ValueError(f"Unknown template: {name}")
 
@@ -177,8 +196,10 @@ class TemplateLibrary:
             except Exception:
                 return 1e10
 
+        bounds = [(-10.0, 10.0)] * n_params
         result = minimize(loss, initial_params, method="L-BFGS-B",
-                          options={"maxiter": max_iter, "ftol": 1e-12})
+                          bounds=bounds,
+                          options={"maxiter": max_iter, "ftol": 1e-9})
         final_params = result.x
         final_mse = float(result.fun)
 
@@ -236,6 +257,12 @@ class TemplateLibrary:
             elif name == "coupled_product":
                 if "*" in expr_lower and n_inputs >= 2:
                     score += 0.4
+            elif name == "piecewise_quadratic":
+                if "sign" in expr_lower and n_inputs >= 2:
+                    score += 0.7
+            elif name == "magnitude_coupled":
+                if ("sqrt" in expr_lower or "mag" in expr_lower) and n_inputs >= 2:
+                    score += 0.6
 
             # Dimensionality bonus
             if tmpl["n_inputs"] == n_inputs:

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def fit_expression(expr_str: str, inputs: np.ndarray, targets: np.ndarray,
                    max_templates: int = 3, max_iter: int = 200,
-                   n_restarts: int = 3) -> Optional[FitResult]:
+                   n_restarts: int = 5) -> Optional[FitResult]:
     """Fit an LLM expression using template library with multiple restarts.
 
     Args:
@@ -41,6 +41,36 @@ def fit_expression(expr_str: str, inputs: np.ndarray, targets: np.ndarray,
                     best_result = result
             except Exception as e:
                 logger.debug(f"Fit failed for {match.template_name} restart {restart}: {e}")
+
+    # Nelder-Mead fallback if L-BFGS-B produced poor results
+    if best_result is not None and best_result.train_mse > 1.0:
+        for match in matches:
+            try:
+                from environments.kernels import TemplateLibrary
+                from scipy.optimize import minimize as scipy_minimize
+
+                def loss(p):
+                    try:
+                        pred = TemplateLibrary.evaluate_template(match.template_name, p, inputs)
+                        mse = np.mean((pred - targets) ** 2)
+                        return 1e10 if (np.isnan(mse) or np.isinf(mse)) else mse
+                    except Exception:
+                        return 1e10
+
+                init = np.random.randn(len(match.param_names)) * 0.5
+                res = scipy_minimize(loss, init, method="Nelder-Mead",
+                                     options={"maxiter": 500, "xatol": 1e-8})
+                if res.fun < best_result.train_mse:
+                    final_params = res.x
+                    best_result = FitResult(
+                        template_name=match.template_name,
+                        params=final_params,
+                        param_names=match.param_names,
+                        train_mse=float(res.fun),
+                        predict_fn=lambda x, n=match.template_name, p=final_params: TemplateLibrary.evaluate_template(n, p, x),
+                    )
+            except Exception as e:
+                logger.debug(f"Nelder-Mead fallback failed: {e}")
 
     return best_result
 
