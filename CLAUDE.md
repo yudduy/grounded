@@ -347,3 +347,7 @@ Newton can serve as the evaluation function for either framework when evolving r
 # ShinkaEvolve evaluates evolved programs by running them in Newton
 # JobScheduler.run() executes a script that: builds scene → runs policy → returns score
 ```
+
+## Session Notes
+
+- **Thompson Sampling in search_augmented_ace_poc.ipynb**: Budget docstring was wrong (said 99, actual is 105 calls). Fixed. The Beta-Bernoulli conjugate update and argmax-of-samples selection are textbook correct. Key limitation: fixed pool after seed phase means no online adaptation. Consider discounted TS (gamma=0.95) if bullet tag drift matters, and dynamic arm addition for longer runs.
