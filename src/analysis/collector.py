@@ -84,17 +84,19 @@ def collect_all(db_path: str, results_dir: str, output_dir: str = None):
 
     stats_report = _statistical_comparisons(db_path)
     if stats_report:
-        report_lines.append("## Statistical Comparisons (Paired t-tests)")
-        report_lines.append("| Comparison | N pairs | t-stat | p-value | Cohen's d | Significant |")
-        report_lines.append("|------------|---------|--------|---------|-----------|-------------|")
+        report_lines.append("## Statistical Comparisons (Paired t-tests, BH FDR-corrected)")
+        report_lines.append("| Comparison | N pairs | t-stat | p-value | p-adj | Cohen's d | Sig (raw) | Sig (adj) |")
+        report_lines.append("|------------|---------|--------|---------|-------|-----------|-----------|-----------|")
         for s in stats_report:
             if "error" in s:
-                report_lines.append(f"| {s['cond_a']} vs {s['cond_b']} | {s['n_pairs']} | - | - | - | insufficient data |")
+                report_lines.append(f"| {s['cond_a']} vs {s['cond_b']} | {s['n_pairs']} | - | - | - | - | insufficient data | - |")
             else:
-                sig = "YES" if s.get('significant', False) else "no"
+                sig_raw = "YES" if s.get('significant', False) else "no"
+                p_adj_str = f"{s['p_value_adjusted']:.4f}" if 'p_value_adjusted' in s else "N/A"
+                sig_adj = "YES" if s.get('significant_adjusted', False) else ("no" if 'significant_adjusted' in s else "N/A")
                 report_lines.append(
                     f"| {s['cond_a']} vs {s['cond_b']} | {s['n_pairs']} | "
-                    f"{s['t_stat']:.3f} | {s['p_value']:.4f} | {s['cohens_d']:.3f} | {sig} |"
+                    f"{s['t_stat']:.3f} | {s['p_value']:.4f} | {p_adj_str} | {s['cohens_d']:.3f} | {sig_raw} | {sig_adj} |"
                 )
         report_lines.append("")
 
@@ -183,17 +185,13 @@ def _summary_by_env(db_path: str) -> Dict:
 
 
 def _statistical_comparisons(db_path: str) -> List[Dict]:
-    from analysis.statistics import load_results, paired_t_test
+    from analysis.statistics import load_results, run_all_comparisons
 
     results = load_results(db_path)
     if len(results) < 4:
         return []
 
-    comparisons = [
-        ("A", "B"), ("A", "C"), ("A", "D"), ("A", "E"),
-        ("B", "D"), ("C", "D"), ("B", "E"),
-    ]
-    return [paired_t_test(results, a, b) for a, b in comparisons]
+    return run_all_comparisons(results)
 
 
 def _expression_diversity(db_path: str) -> Dict:

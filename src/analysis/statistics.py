@@ -57,10 +57,8 @@ def paired_t_test(results: List[Dict], cond_a: str, cond_b: str,
     diff = a - b
     t_stat, p_value = stats.ttest_rel(a, b)
     mean_diff = float(np.mean(diff))
-    std_a = float(np.std(a, ddof=1))
-    std_b = float(np.std(b, ddof=1))
-    pooled_std_av = (std_a + std_b) / 2.0
-    cohens_d = mean_diff / pooled_std_av if pooled_std_av > 0 else 0.0
+    std_diff = float(np.std(diff, ddof=1))
+    cohens_d = mean_diff / std_diff if std_diff > 0 else 0.0
 
     return {
         "cond_a": cond_a,
