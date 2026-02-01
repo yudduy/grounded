@@ -70,6 +70,13 @@ class ACECondition(StaticCondition):
                 self._api_client, self.api_provider, self.reflector_model)
             self._curator = Curator(
                 self._api_client, self.api_provider, self.curator_model)
+            try:
+                from ace.core.bulletpoint_analyzer import BulletpointAnalyzer
+                self._analyzer = BulletpointAnalyzer(
+                    self._api_client, self.curator_model,
+                    embedding_model_name='all-mpnet-base-v2')
+            except Exception:
+                self._analyzer = None
             self._ace_initialized = True
         except ImportError as e:
             logger.warning(f"ACE import failed, using LLM-based fallback: {e}")
@@ -156,8 +163,24 @@ class ACECondition(StaticCondition):
     def curate(self, state: LoopState, round_num: int,
                llm: LLMClient) -> str:
         """Evolve playbook every curate_interval rounds."""
-        if round_num % self.curate_interval != 0:
+        self._rounds_since_curate = getattr(self, '_rounds_since_curate', 0) + 1
+        self._rounds_since_improvement = getattr(self, '_rounds_since_improvement', 0)
+
+        # Detect performance plateau
+        if len(state.history) >= 5:
+            recent_mses = [h.get("test_mse", float("inf")) for h in state.history[-5:]]
+            if all(m < float("inf") for m in recent_mses):
+                mse_var = np.var(recent_mses)
+                if mse_var < 0.001:
+                    self._rounds_since_improvement += 1
+                else:
+                    self._rounds_since_improvement = 0
+
+        # Adaptive interval: curate more often during plateaus
+        interval = max(5, self.curate_interval) if self._rounds_since_improvement >= 3 else self.curate_interval
+        if self._rounds_since_curate < interval:
             return self._playbook
+        self._rounds_since_curate = 0
 
         self._init_ace()
 
@@ -182,6 +205,16 @@ class ACECondition(StaticCondition):
                 self._next_global_id = next_id
                 logger.info(f"Curated playbook at round {round_num}: "
                             f"{len(operations)} operations")
+
+                # Semantic dedup every 20 rounds
+                if getattr(self, '_analyzer', None) and round_num % 20 == 0:
+                    try:
+                        self._playbook = self._analyzer.analyze(
+                            self._playbook, threshold=0.90, merge=True)
+                        logger.info(f"Deduplicated playbook at round {round_num}")
+                    except Exception as e:
+                        logger.debug(f"Dedup failed: {e}")
+
                 return self._playbook
             except Exception as e:
                 logger.warning(f"ACE Curator failed: {e}")

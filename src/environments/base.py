@@ -75,7 +75,10 @@ class BaseEnvironment(abc.ABC):
             inputs = inputs.reshape(1, -1)
         y = self._ground_truth(inputs)
         if self.noise:
-            sigma = self.spec.noise_sigma_rel * np.abs(y)
+            # Hybrid noise: proportional + small absolute floor for scale-independence
+            y_scale = np.std(y) if len(y) > 1 else max(np.abs(y).max(), 1.0)
+            sigma = np.sqrt((self.spec.noise_sigma_rel * y) ** 2
+                            + (self.spec.noise_sigma_rel * y_scale * 0.01) ** 2)
             y = y + self.rng.normal(0, np.maximum(sigma, 1e-10))
         return y
 

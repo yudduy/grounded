@@ -1,12 +1,12 @@
 """Dynamical systems environments for equation discovery."""
 from .base import BaseEnvironment
 from .tier1 import (
-    ModifiedGravityCoupling,
+    ExponentialDampedGravity,
     AsymmetricDrag,
     NonReciprocalSpring,
     VelocityDependentMass,
-    AnharmonicOscillator,
-    ModifiedProjectile,
+    CoupledNonlinearDamping,
+    FractionalDrag,
 )
 from .tier2 import (
     NonPolynomialConserved,
@@ -16,24 +16,24 @@ from .tier2 import (
 
 __all__ = [
     "BaseEnvironment",
-    "ModifiedGravityCoupling",
+    "ExponentialDampedGravity",
     "AsymmetricDrag",
     "NonReciprocalSpring",
     "VelocityDependentMass",
-    "AnharmonicOscillator",
-    "ModifiedProjectile",
+    "CoupledNonlinearDamping",
+    "FractionalDrag",
     "NonPolynomialConserved",
     "CrossCoupledDynamics",
     "HistoryDependentForce",
 ]
 
 ALL_ENVIRONMENTS = [
-    ModifiedGravityCoupling,
+    ExponentialDampedGravity,
     AsymmetricDrag,
     NonReciprocalSpring,
     VelocityDependentMass,
-    AnharmonicOscillator,
-    ModifiedProjectile,
+    CoupledNonlinearDamping,
+    FractionalDrag,
     NonPolynomialConserved,
     CrossCoupledDynamics,
     HistoryDependentForce,

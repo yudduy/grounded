@@ -22,12 +22,12 @@ class RunConfig:
 class CampaignConfig:
     """Configuration for the full experiment campaign."""
     environments: List[str] = field(default_factory=lambda: [
-        "ModifiedGravityCoupling",
+        "ExponentialDampedGravity",
         "AsymmetricDrag",
         "NonReciprocalSpring",
         "VelocityDependentMass",
-        "AnharmonicOscillator",
-        "ModifiedProjectile",
+        "CoupledNonlinearDamping",
+        "FractionalDrag",
         "NonPolynomialConserved",
         "CrossCoupledDynamics",
         "HistoryDependentForce",

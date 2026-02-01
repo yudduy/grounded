@@ -32,11 +32,11 @@ def format_data_table(input_names: List[str], inputs: np.ndarray,
     return header + "\n" + "-" * len(header) + "\n" + "\n".join(rows)
 
 
-ZERO_SHOT_SYSTEM = """You are a physicist analyzing experimental data.
-Given a table of input-output measurements, propose the mathematical equation
-that best describes the relationship. Express it as a Python expression using
-the given variable names. Use numpy functions (np.sin, np.cos, np.sqrt, etc.)
-where needed. Reply with ONLY the Python expression, nothing else."""
+ZERO_SHOT_SYSTEM = """You are a data analyst examining measurements.
+Given a table of input-output data, propose the mathematical equation
+that best describes the relationship. Express it as a Python expression
+using the given variable names and numpy (as np). Reply with ONLY the
+Python expression, nothing else."""
 
 ZERO_SHOT_USER = """Here are {n} measurements from a physical system.
 

@@ -3,21 +3,21 @@ import numpy as np
 from .base import BaseEnvironment, EnvironmentSpec
 
 
-class ModifiedGravityCoupling(BaseEnvironment):
+class ExponentialDampedGravity(BaseEnvironment):
     """
-    Modified gravity coupling: y = -0.5*g*t^2 + 0.1*y_offset*t
+    Gravity with exponential state-dependent damping.
 
-    Introduces polynomial nonlinearity to single gravitational system.
-    Ground truth: output = -4.9*t^2 + 0.1*y_offset*t
+    Ground truth: y = -4.9*t^2 * exp(-0.05*|y_offset|)
+    Exponential correction harder to guess than linear.
     """
 
     def _make_spec(self) -> EnvironmentSpec:
         return EnvironmentSpec(
-            name="ModifiedGravityCoupling",
-            description="Gravity with state-dependent correction term",
+            name="ExponentialDampedGravity",
+            description="Gravity with exponential state-dependent damping",
             input_names=["time", "y_offset"],
             input_ranges={"time": (0.0, 5.0), "y_offset": (-10.0, 10.0)},
-            ground_truth_expr="y = -4.9*t^2 + 0.1*y_offset*t",
+            ground_truth_expr="y = -4.9*t^2 * exp(-0.05*|y_offset|)",
             tier=1,
             noise_sigma_rel=0.01,
         )
@@ -25,7 +25,7 @@ class ModifiedGravityCoupling(BaseEnvironment):
     def _ground_truth(self, inputs: np.ndarray) -> np.ndarray:
         time = inputs[:, 0]
         y_offset = inputs[:, 1]
-        return -4.9 * time ** 2 + 0.1 * y_offset * time
+        return -4.9 * time ** 2 * np.exp(-0.05 * np.abs(y_offset))
 
 
 class AsymmetricDrag(BaseEnvironment):
@@ -101,20 +101,21 @@ class VelocityDependentMass(BaseEnvironment):
         return -position / (1.0 + 0.1 * velocity ** 2)
 
 
-class AnharmonicOscillator(BaseEnvironment):
+class CoupledNonlinearDamping(BaseEnvironment):
     """
-    Anharmonic oscillator with cubic restoring force nonlinearity.
+    Nonlinear damping with position-velocity coupling.
 
-    Ground truth: force = -position - 0.3*position^3
+    Ground truth: force = -position * (1 + 0.15*velocity*position)
+    No direct textbook analog — coupling between damping and displacement.
     """
 
     def _make_spec(self) -> EnvironmentSpec:
         return EnvironmentSpec(
-            name="AnharmonicOscillator",
-            description="Oscillator with cubic restoring force",
+            name="CoupledNonlinearDamping",
+            description="Oscillator with nonlinear position-velocity damping coupling",
             input_names=["position", "velocity"],
             input_ranges={"position": (-4.0, 4.0), "velocity": (-4.0, 4.0)},
-            ground_truth_expr="force = -position - 0.3*position^3",
+            ground_truth_expr="force = -position * (1 + 0.15*velocity*position)",
             tier=1,
             noise_sigma_rel=0.01,
         )
@@ -122,24 +123,24 @@ class AnharmonicOscillator(BaseEnvironment):
     def _ground_truth(self, inputs: np.ndarray) -> np.ndarray:
         position = inputs[:, 0]
         velocity = inputs[:, 1]
-        return -position - 0.3 * position ** 3
+        return -position * (1.0 + 0.15 * velocity * position)
 
 
-class ModifiedProjectile(BaseEnvironment):
+class FractionalDrag(BaseEnvironment):
     """
-    Projectile motion with quadratic air resistance.
+    Projectile with non-standard fractional drag exponent.
 
-    Ground truth: force_magnitude = 0.1 * velocity_magnitude
-    Applied separately to x and y directions.
+    Ground truth: force_y = -9.8 - 0.15 * |v|^1.5 * sign(vy)
+    Exponent 1.5 is between laminar (1) and turbulent (2) — very rare.
     """
 
     def _make_spec(self) -> EnvironmentSpec:
         return EnvironmentSpec(
-            name="ModifiedProjectile",
-            description="2D projectile with velocity-magnitude-dependent drag",
+            name="FractionalDrag",
+            description="2D projectile with fractional-exponent drag",
             input_names=["velocity_x", "velocity_y"],
             input_ranges={"velocity_x": (-10.0, 10.0), "velocity_y": (-10.0, 10.0)},
-            ground_truth_expr="drag = 0.1*sqrt(vx^2 + vy^2); force_x = -drag*vx; force_y = -9.8 - drag*vy",
+            ground_truth_expr="force_y = -9.8 - 0.15 * (vx^2+vy^2)^0.75 * sign(vy)",
             tier=1,
             noise_sigma_rel=0.01,
         )
@@ -148,6 +149,4 @@ class ModifiedProjectile(BaseEnvironment):
         vx = inputs[:, 0]
         vy = inputs[:, 1]
         v_mag = np.sqrt(vx ** 2 + vy ** 2)
-        drag_coeff = 0.1
-        # Return force_y (more interesting than force_x)
-        return -9.8 - drag_coeff * vy * v_mag
+        return -9.8 - 0.15 * (v_mag ** 1.5) * np.sign(vy)

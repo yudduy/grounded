@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "Grounded discovery experiment: ACE-style context memory for equation recovery"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy>=1.24",
-    "sympy>=1.12",
-    "scipy>=1.11",
+    "numpy>=1.24,<2.0",
+    "sympy>=1.12,<1.14",
+    "scipy>=1.11,<1.15",
 ]
 
 [project.optional-dependencies]

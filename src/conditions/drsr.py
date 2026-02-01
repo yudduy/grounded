@@ -118,6 +118,20 @@ class DrSRCondition(StaticCondition):
             self._negative.append(f"{expr} (MSE={mse:.6f})")
             category = "NEGATIVE"
 
+        # Inductive idea extraction every 5 rounds
+        if round_result.round_num % 5 == 0 and len(self._positive) >= 3:
+            pos_sample = "\n".join(self._positive[-5:])
+            insight_sys = "Analyze these successful equations. Extract 2-3 actionable insights about what functional forms or strategies work."
+            insight_msg = f"Recent POSITIVE equations:\n{pos_sample}"
+            try:
+                insight_result = llm.query(msg=insight_msg, system_msg=insight_sys)
+                if insight_result and insight_result.content:
+                    if not hasattr(self, '_insights'):
+                        self._insights = []
+                    self._insights.append(f"[Round {round_result.round_num}] {insight_result.content.strip()}")
+            except Exception:
+                pass
+
         return f"Categorized as {category}: {expr} MSE={mse:.6f}"
 
     def curate(self, state: LoopState, round_num: int,

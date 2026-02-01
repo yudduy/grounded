@@ -6,6 +6,9 @@ Customizes the standard ACE prompts for the equation discovery domain.
 EQUATION_PLAYBOOK_TEMPLATE = """## EQUATION FORMS
 (Functional forms that have shown promise)
 
+## SUCCESSFUL EXAMPLES
+(Top equations discovered so far with their MSE)
+
 ## PARAMETER STRATEGIES
 (Approaches for estimating parameter values)
 

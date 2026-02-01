@@ -49,11 +49,18 @@ def check_symbolic_match(discovered: str, ground_truth: str,
         diff = simplify(disc_expr - truth_expr)
         matched = diff == 0
 
-        # If exact match fails, try numerical evaluation
+        # If exact match fails, try numerical evaluation with multiple points
         if not matched:
-            test_vals = {s: np.random.uniform(-2, 2) for s in syms}
-            num_diff = float(abs(N(diff.subs(test_vals))))
-            matched = num_diff < tol
+            max_diff = 0.0
+            for _ in range(20):
+                test_vals = {s: np.random.uniform(-2, 2) for s in syms}
+                try:
+                    num_diff = float(abs(N(diff.subs(test_vals))))
+                    max_diff = max(max_diff, num_diff)
+                except Exception:
+                    max_diff = float("inf")
+                    break
+            matched = max_diff < tol
 
         return {
             "matched": matched,

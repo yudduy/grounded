@@ -123,6 +123,12 @@ class DiscoveryLoop:
         self.state = LoopState()
         self.results: List[RoundResult] = []
 
+    def _track_cost(self, result) -> float:
+        """Extract cost from an LLM QueryResult if available."""
+        if result is not None and hasattr(result, 'cost') and result.cost is not None:
+            return float(result.cost)
+        return 0.0
+
     def run(self, start_round: int = 1) -> List[RoundResult]:
         """Run the discovery loop from start_round to total_rounds.
 
@@ -136,6 +142,7 @@ class DiscoveryLoop:
             t0 = time.time()
             rr = self._run_round(round_num)
             rr.wall_time = time.time() - t0
+            self.state.total_cost += rr.llm_cost
             self.results.append(rr)
 
             logger.info(
@@ -223,6 +230,11 @@ class DiscoveryLoop:
         # 5. EVALUATE
         try:
             train_pred = predict_fn(self.state.all_inputs)
+            if not np.all(np.isfinite(train_pred)):
+                rr.parse_error = "Prediction contains NaN/Inf"
+                logger.warning(f"Round {round_num} EVALUATE: non-finite predictions")
+                self._record_history(rr, round_num)
+                return rr
             rr.train_mse = float(np.mean(
                 (train_pred - self.state.all_outputs) ** 2))
             rr.test_mse = self.env.test_mse(predict_fn)

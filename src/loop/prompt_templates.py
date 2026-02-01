@@ -6,6 +6,10 @@ loop uses specific prompts. Templates are parameterized with f-strings.
 
 import numpy as np
 
+# Maximum observations to include in prompts to stay within token budget.
+# 100 rounds × 5 pts/round = 500 total; we show most recent 200.
+MAX_PROMPT_OBSERVATIONS = 200
+
 
 CHOOSE_SYSTEM = """You are a scientist designing experiments to discover a hidden physical law.
 You have {n_inputs} input variables: {input_names}.
@@ -96,7 +100,7 @@ def format_observation_summary(inputs, outputs, input_names, max_show=10):
     return summary
 
 
-def format_data_table(inputs, outputs, input_names, max_show=50):
+def format_data_table(inputs, outputs, input_names, max_show=MAX_PROMPT_OBSERVATIONS):
     """Format all data as a table string."""
     n = len(outputs)
     header = " | ".join(input_names + ["y"])

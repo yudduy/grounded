@@ -82,23 +82,19 @@ class TestBaseEnvironment:
 class TestSpecificEnvironments:
     """Test specific known-input-output pairs."""
 
-    def test_modified_gravity_zero(self):
-        from environments.tier1 import ModifiedGravityCoupling
-        env = ModifiedGravityCoupling(seed=0, noise=False)
+    def test_exponential_gravity_zero(self):
+        from environments.tier1 import ExponentialDampedGravity
+        env = ExponentialDampedGravity(seed=0, noise=False)
         inputs = np.array([[0.0, 0.0]])
         out = env.evaluate(inputs)
         assert abs(out[0]) < 1e-10
 
-    def test_anharmonic_symmetry(self):
-        from environments.tier1 import AnharmonicOscillator
-        env = AnharmonicOscillator(seed=0, noise=False)
-        inputs_pos = np.array([[2.0, 0.0]])
-        inputs_neg = np.array([[-2.0, 0.0]])
-        out_pos = env.evaluate(inputs_pos)
-        out_neg = env.evaluate(inputs_neg)
-        # f(-x) = -f(x) for odd function
-        # f = -x - 0.3*x^3 is odd
-        np.testing.assert_almost_equal(out_pos, -out_neg)
+    def test_coupled_nonlinear_zero(self):
+        from environments.tier1 import CoupledNonlinearDamping
+        env = CoupledNonlinearDamping(seed=0, noise=False)
+        inputs = np.array([[0.0, 0.0]])
+        out = env.evaluate(inputs)
+        assert abs(out[0]) < 1e-10
 
     def test_asymmetric_drag_sign(self):
         from environments.tier1 import AsymmetricDrag
