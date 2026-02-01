@@ -7,11 +7,12 @@ Modules:
 - levin: Extended analysis probes (strategy coding, intervention, transfer)
 """
 
-from . import statistics, plots, symbolic, levin
+from . import statistics, plots, symbolic, levin, collector
 
 __all__ = [
     "statistics",
     "plots",
     "symbolic",
     "levin",
+    "collector",
 ]

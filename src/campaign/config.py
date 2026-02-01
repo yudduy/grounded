@@ -14,8 +14,10 @@ class RunConfig:
     seed: int
     total_rounds: int = 100
     points_per_round: int = 5
-    llm_model: str = "gpt-4o-mini"
-    budget_per_run: float = 10.0  # USD
+    # TEMP: Using Hyperbolic GPT-OSS 20B for PoC (~$6 for full campaign)
+    # Production: switch back to "gpt-4o-mini" or "gpt-4.1-nano"
+    llm_model: str = "hyperbolic/openai/gpt-oss-20b"
+    budget_per_run: float = 1.0  # USD (TEMP: lowered for cheap PoC model)
 
 
 @dataclass
@@ -38,9 +40,11 @@ class CampaignConfig:
     seeds: List[int] = field(default_factory=lambda: [0, 1, 2])
     total_rounds: int = 100
     points_per_round: int = 5
-    llm_model: str = "gpt-4o-mini"
-    budget_total: float = 500.0
-    budget_per_run: float = 10.0
+    # TEMP: Using Hyperbolic GPT-OSS 20B for PoC (~$6 for full campaign)
+    # Production: switch back to "gpt-4o-mini" or "gpt-4.1-nano"
+    llm_model: str = "hyperbolic/openai/gpt-oss-20b"
+    budget_total: float = 20.0  # TEMP: lowered for cheap PoC model
+    budget_per_run: float = 1.0  # TEMP: lowered for cheap PoC model
     results_dir: str = "results"
     db_path: str = "results/campaign.sqlite"
 

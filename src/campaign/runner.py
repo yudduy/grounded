@@ -1,7 +1,7 @@
 """Campaign runner for 162 experimental runs.
 
 Orchestrates all environment x condition x seed combinations.
-Supports checkpoint/resume from SQLite.
+Supports checkpoint/resume from SQLite + per-round JSON checkpoints.
 """
 import sys
 import json
@@ -17,7 +17,7 @@ sys.path.insert(0, str(_repo_root / "src"))
 
 from shinka.llm.llm import LLMClient
 from environments import ALL_ENVIRONMENTS
-from loop.orchestrator import DiscoveryLoop
+from loop.orchestrator import DiscoveryLoop, RoundResult
 from conditions.static import StaticCondition
 from conditions.ace_condition import ACECondition
 from conditions.gradient import GradientCondition
@@ -92,14 +92,48 @@ class CampaignRunner:
         conn.commit()
         conn.close()
 
-    def _is_completed(self, run: RunConfig) -> bool:
+    def _get_run_status(self, run: RunConfig) -> Optional[str]:
+        """Get run status from DB. Returns None if not started."""
         conn = sqlite3.connect(str(self.db_path))
         row = conn.execute(
             "SELECT status FROM runs WHERE env_name=? AND condition=? AND seed=?",
             (run.env_name, run.condition, run.seed)
         ).fetchone()
         conn.close()
-        return row is not None and row[0] == "completed"
+        return row[0] if row else None
+
+    def _is_completed(self, run: RunConfig) -> bool:
+        return self._get_run_status(run) == "completed"
+
+    def _mark_started(self, run: RunConfig):
+        """Mark a run as in-progress in the DB."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.execute("""
+            INSERT OR REPLACE INTO runs
+            (env_name, condition, seed, status, started_at)
+            VALUES (?, ?, ?, 'running', datetime('now'))
+        """, (run.env_name, run.condition, run.seed))
+        conn.commit()
+        conn.close()
+
+    def _save_round_result(self, run: RunConfig, rr: RoundResult):
+        """Persist a single round result to SQLite (incremental)."""
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.execute("""
+                INSERT OR REPLACE INTO round_results
+                (env_name, condition, seed, round_num, expression,
+                 train_mse, test_mse, reflection, wall_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run.env_name, run.condition, run.seed, rr.round_num,
+                rr.expression_clean, rr.train_mse, rr.test_mse,
+                rr.reflection, rr.wall_time,
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to save round result to DB: {e}")
 
     def _save_run_result(self, run: RunConfig, summary: Dict):
         conn = sqlite3.connect(str(self.db_path))
@@ -120,6 +154,16 @@ class CampaignRunner:
         conn.commit()
         conn.close()
 
+    def _checkpoint_path(self, run: RunConfig) -> str:
+        """Get the per-run JSON checkpoint path."""
+        ckpt_dir = self.results_dir / "checkpoints"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        return str(ckpt_dir / f"{run.env_name}_{run.condition}_s{run.seed}.ckpt.json")
+
+    def _results_path(self, run: RunConfig) -> str:
+        """Get the per-run JSON results path."""
+        return str(self.results_dir / f"{run.env_name}_{run.condition}_s{run.seed}.json")
+
     def _make_strategy(self, run: RunConfig):
         """Create the condition strategy for a run."""
         cond_class = CONDITION_MAP[run.condition]
@@ -132,8 +176,9 @@ class CampaignRunner:
         return cond_class(**kwargs)
 
     def run_single(self, run: RunConfig, llm: LLMClient) -> Dict:
-        """Execute a single experimental run."""
+        """Execute a single experimental run with checkpoint/resume."""
         logger.info(f"Starting: {run.env_name} / {run.condition} / seed={run.seed}")
+        self._mark_started(run)
 
         env_cls = ENV_MAP[run.env_name]
         env = env_cls(seed=run.seed)
@@ -146,9 +191,39 @@ class CampaignRunner:
             seed=run.seed,
         )
 
-        results = loop.run()
+        # Resume from per-round checkpoint if it exists
+        ckpt_path = self._checkpoint_path(run)
+        start_round = 1
+        if Path(ckpt_path).exists():
+            try:
+                start_round = loop.load_checkpoint(ckpt_path)
+                logger.info(f"Resuming {run.env_name}/{run.condition}/s{run.seed} "
+                           f"from round {start_round}")
+            except Exception as e:
+                logger.warning(f"Checkpoint load failed, starting fresh: {e}")
+                start_round = 1
+
+        # Run with per-round checkpointing and DB writes
+        def on_round(rr: RoundResult):
+            self._save_round_result(run, rr)
+
+        results = loop.run(
+            start_round=start_round,
+            checkpoint_path=ckpt_path,
+            round_callback=on_round,
+        )
+
         summary = loop.get_summary()
         self._save_run_result(run, summary)
+
+        # Save full results JSON
+        loop.save_results(self._results_path(run))
+
+        # Clean up checkpoint after successful completion
+        try:
+            Path(ckpt_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
         logger.info(f"Completed: {run.env_name}/{run.condition}/seed={run.seed} "
                      f"best_mse={summary['best_test_mse']:.6f}")
@@ -159,6 +234,7 @@ class CampaignRunner:
         runs = self.config.generate_runs()
         completed = 0
         skipped = 0
+        failed = 0
 
         for i, run in enumerate(runs):
             if self._is_completed(run):
@@ -175,12 +251,13 @@ class CampaignRunner:
                 completed += 1
             except Exception as e:
                 logger.error(f"Run failed: {run.env_name}/{run.condition}/seed={run.seed}: {e}")
+                failed += 1
 
             logger.info(f"Progress: {completed + skipped}/{len(runs)} "
-                         f"(completed={completed}, skipped={skipped})")
+                         f"(completed={completed}, skipped={skipped}, failed={failed})")
 
         logger.info(f"Campaign finished: {completed} new, {skipped} skipped, "
-                     f"total_cost=${self.total_cost:.2f}")
+                     f"{failed} failed, total_cost=${self.total_cost:.2f}")
 
     def get_results_table(self) -> List[Dict]:
         """Get all results as a list of dicts."""

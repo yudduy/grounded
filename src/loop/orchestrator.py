@@ -129,11 +129,16 @@ class DiscoveryLoop:
             return float(result.cost)
         return 0.0
 
-    def run(self, start_round: int = 1) -> List[RoundResult]:
+    def run(self, start_round: int = 1,
+            checkpoint_path: Optional[str] = None,
+            round_callback: Optional[Callable] = None) -> List[RoundResult]:
         """Run the discovery loop from start_round to total_rounds.
 
         Args:
             start_round: Starting round number (for resuming from checkpoint).
+            checkpoint_path: If set, save checkpoint after every round.
+            round_callback: Optional callback(round_result) called after each round,
+                used by campaign runner to persist per-round data incrementally.
 
         Returns:
             List of RoundResult objects, one per round.
@@ -150,6 +155,20 @@ class DiscoveryLoop:
                 f"test_mse={rr.test_mse:.6f} best={self.state.best_test_mse:.6f} "
                 f"expr={rr.expression_clean}"
             )
+
+            # Per-round checkpoint for crash resilience
+            if checkpoint_path:
+                try:
+                    self.save_checkpoint(checkpoint_path)
+                except Exception as e:
+                    logger.warning(f"Checkpoint save failed at round {round_num}: {e}")
+
+            # Per-round callback for incremental DB writes
+            if round_callback:
+                try:
+                    round_callback(rr)
+                except Exception as e:
+                    logger.warning(f"Round callback failed at round {round_num}: {e}")
 
         return self.results
 
