@@ -4,6 +4,7 @@ Handles common LLM output quirks: markdown fences, variable name mismatches,
 numpy vs math functions, reasoning model chain-of-thought output.
 """
 import re
+import warnings
 import numpy as np
 from typing import Callable, List, Optional, Tuple
 
@@ -78,7 +79,9 @@ def _try_eval(expr: str, input_names: List[str]) -> bool:
         for alias, real in aliases.items():
             if real in input_names:
                 local_vars[alias] = local_vars[real]
-        result = eval(expr, {"__builtins__": {}}, local_vars)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            result = eval(expr, {"__builtins__": {}}, local_vars)
         result = np.asarray(result, dtype=np.float64)
         return np.all(np.isfinite(result)) and result.size > 0
     except Exception:
@@ -214,7 +217,9 @@ def parse_expression(expr_str: str, input_names: List[str]
             idx = input_names.index(real) if real in input_names else -1
             if idx >= 0:
                 local_vars[alias] = inputs[:, idx]
-        result = eval(cleaned, {"__builtins__": {}}, local_vars)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            result = eval(cleaned, {"__builtins__": {}}, local_vars)
         result = np.asarray(result, dtype=np.float64)
         if result.ndim == 0:
             result = np.full(inputs.shape[0], float(result))
