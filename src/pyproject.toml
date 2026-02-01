@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grounded-discovery"
+version = "0.1.0"
+description = "Grounded discovery experiment: ACE-style context memory for equation recovery"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "sympy>=1.12",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+gpu = ["warp-lang>=1.0"]
+pysr = ["pysr>=0.18"]
+all = ["warp-lang>=1.0", "pysr>=0.18"]
+dev = ["pytest>=7.0", "matplotlib>=3.7"]
+
+[tool.setuptools.packages.find]
+where = ["."]
