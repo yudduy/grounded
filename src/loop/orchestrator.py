@@ -1,9 +1,7 @@
 """Discovery loop orchestrator.
 
-Runs the interactive equation discovery loop:
-CHOOSE → OBSERVE → HYPOTHESIZE → FIT → EVALUATE → REFLECT → CURATE
-
-Different experimental conditions plug in via the ConditionStrategy interface.
+Runs CHOOSE -> OBSERVE -> HYPOTHESIZE -> FIT -> EVALUATE -> REFLECT -> CURATE.
+Experimental conditions plug in via the ConditionStrategy interface.
 """
 import sys
 import json
@@ -28,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RoundResult:
-    """Results from a single round of the discovery loop."""
     round_num: int
     chosen_inputs: Optional[np.ndarray] = None
     observed_outputs: Optional[np.ndarray] = None
@@ -44,7 +41,6 @@ class RoundResult:
 
 @dataclass
 class LoopState:
-    """Accumulated state across rounds."""
     all_inputs: Optional[np.ndarray] = None  # (N, d)
     all_outputs: Optional[np.ndarray] = None  # (N,)
     history: List[Dict] = field(default_factory=list)
@@ -55,7 +51,6 @@ class LoopState:
     total_cost: float = 0.0
 
     def add_observations(self, inputs: np.ndarray, outputs: np.ndarray):
-        """Accumulate new observations into the loop state."""
         if self.all_inputs is None:
             self.all_inputs = inputs.copy()
             self.all_outputs = outputs.copy()
@@ -65,35 +60,22 @@ class LoopState:
 
 
 class ConditionStrategy(Protocol):
-    """Interface for experimental conditions (A-F).
-
-    Each condition implements different subsets of the loop steps.
-    """
+    """Interface for experimental conditions (A-F)."""
 
     def choose_inputs(self, env: BaseEnvironment, state: LoopState,
-                      round_num: int, llm: LLMClient) -> np.ndarray:
-        """Choose input points for this round."""
-        ...
+                      round_num: int, llm: LLMClient) -> np.ndarray: ...
 
     def hypothesize(self, env: BaseEnvironment, state: LoopState,
-                    round_num: int, llm: LLMClient) -> str:
-        """Propose an equation given accumulated data."""
-        ...
+                    round_num: int, llm: LLMClient) -> str: ...
 
     def fit(self, expr_str: str, inputs: np.ndarray, outputs: np.ndarray,
-            env: BaseEnvironment) -> Optional[Callable]:
-        """Optionally fit parameters. Returns predict_fn or None."""
-        ...
+            env: BaseEnvironment) -> Optional[Callable]: ...
 
     def reflect(self, env: BaseEnvironment, state: LoopState,
-                round_result: RoundResult, llm: LLMClient) -> str:
-        """Reflect on this round's results."""
-        ...
+                round_result: RoundResult, llm: LLMClient) -> str: ...
 
     def curate(self, state: LoopState, round_num: int,
-               llm: LLMClient) -> str:
-        """Update playbook/context. Returns updated playbook."""
-        ...
+               llm: LLMClient) -> str: ...
 
 
 class DiscoveryLoop:
@@ -104,16 +86,6 @@ class DiscoveryLoop:
                  total_rounds: int = 100,
                  points_per_round: int = 5,
                  seed: int = 0):
-        """Initialize the discovery loop.
-
-        Args:
-            env: The counterfactual physics environment.
-            llm: LLM client for prompting.
-            strategy: Condition strategy implementing the loop steps.
-            total_rounds: Number of discovery rounds to run.
-            points_per_round: Number of new data points per round.
-            seed: Random seed for reproducibility.
-        """
         self.env = env
         self.llm = llm
         self.strategy = strategy
@@ -124,7 +96,6 @@ class DiscoveryLoop:
         self.results: List[RoundResult] = []
 
     def _track_cost(self, result) -> float:
-        """Extract cost from an LLM QueryResult if available."""
         if result is not None and hasattr(result, 'cost') and result.cost is not None:
             return float(result.cost)
         return 0.0
@@ -132,17 +103,7 @@ class DiscoveryLoop:
     def run(self, start_round: int = 1,
             checkpoint_path: Optional[str] = None,
             round_callback: Optional[Callable] = None) -> List[RoundResult]:
-        """Run the discovery loop from start_round to total_rounds.
-
-        Args:
-            start_round: Starting round number (for resuming from checkpoint).
-            checkpoint_path: If set, save checkpoint after every round.
-            round_callback: Optional callback(round_result) called after each round,
-                used by campaign runner to persist per-round data incrementally.
-
-        Returns:
-            List of RoundResult objects, one per round.
-        """
+        """Run the discovery loop from start_round to total_rounds."""
         for round_num in range(start_round, self.total_rounds + 1):
             t0 = time.time()
             rr = self._run_round(round_num)
@@ -156,14 +117,12 @@ class DiscoveryLoop:
                 f"expr={rr.expression_clean}"
             )
 
-            # Per-round checkpoint for crash resilience
             if checkpoint_path:
                 try:
                     self.save_checkpoint(checkpoint_path)
                 except Exception as e:
                     logger.warning(f"Checkpoint save failed at round {round_num}: {e}")
 
-            # Per-round callback for incremental DB writes
             if round_callback:
                 try:
                     round_callback(rr)
@@ -173,26 +132,10 @@ class DiscoveryLoop:
         return self.results
 
     def _run_round(self, round_num: int) -> RoundResult:
-        """Execute one complete round of the discovery loop.
-
-        Steps:
-        1. CHOOSE: select input points
-        2. OBSERVE: query environment
-        3. HYPOTHESIZE: propose equation
-        4. FIT: optionally fit parameters
-        5. EVALUATE: compute train/test MSE
-        6. REFLECT: analyze results
-        7. CURATE: update playbook
-
-        Args:
-            round_num: Current round number.
-
-        Returns:
-            RoundResult with all outputs and metrics.
-        """
+        """Execute one complete round of the discovery loop."""
         rr = RoundResult(round_num=round_num)
 
-        # 1. CHOOSE inputs
+        # CHOOSE
         try:
             chosen = self.strategy.choose_inputs(
                 self.env, self.state, round_num, self.llm)
@@ -203,7 +146,7 @@ class DiscoveryLoop:
             logger.warning(f"Round {round_num} CHOOSE failed: {e}, using random")
             chosen = self.env.sample_inputs(self.points_per_round)
 
-        # 2. OBSERVE
+        # OBSERVE
         try:
             inputs, outputs = self.env.choose_inputs(chosen)
             rr.chosen_inputs = inputs
@@ -215,19 +158,19 @@ class DiscoveryLoop:
             self._record_history(rr, round_num)
             return rr
 
-        # 3. HYPOTHESIZE
+        # HYPOTHESIZE
         try:
             expr_raw = self.strategy.hypothesize(
                 self.env, self.state, round_num, self.llm)
             rr.expression_raw = expr_raw
-            rr.expression_clean = clean_expression(expr_raw)
+            rr.expression_clean = clean_expression(expr_raw, input_names=self.env.input_names)
         except Exception as e:
             logger.warning(f"Round {round_num} HYPOTHESIZE failed: {e}")
             rr.parse_error = str(e)
             self._record_history(rr, round_num)
             return rr
 
-        # 4. FIT (optional, depends on condition)
+        # FIT
         predict_fn, parse_err = parse_expression(
             rr.expression_clean, self.env.input_names)
         if predict_fn is None:
@@ -236,7 +179,6 @@ class DiscoveryLoop:
             self._record_history(rr, round_num)
             return rr
 
-        # Try condition-specific fitting
         try:
             fitted_fn = self.strategy.fit(
                 rr.expression_clean, self.state.all_inputs,
@@ -246,7 +188,7 @@ class DiscoveryLoop:
         except Exception as e:
             logger.warning(f"Round {round_num} FIT failed: {e}, using base parse")
 
-        # 5. EVALUATE
+        # EVALUATE
         try:
             train_pred = predict_fn(self.state.all_inputs)
             if not np.all(np.isfinite(train_pred)):
@@ -263,20 +205,19 @@ class DiscoveryLoop:
             self._record_history(rr, round_num)
             return rr
 
-        # Update best
         if rr.test_mse < self.state.best_test_mse:
             self.state.best_test_mse = rr.test_mse
             self.state.best_expression = rr.expression_clean
             self.state.best_round = round_num
 
-        # 6. REFLECT
+        # REFLECT
         try:
             rr.reflection = self.strategy.reflect(
                 self.env, self.state, rr, self.llm)
         except Exception as e:
             logger.warning(f"Round {round_num} REFLECT failed: {e}")
 
-        # 7. CURATE
+        # CURATE
         try:
             self.state.playbook = self.strategy.curate(
                 self.state, round_num, self.llm)
@@ -287,7 +228,6 @@ class DiscoveryLoop:
         return rr
 
     def _record_history(self, rr: RoundResult, round_num: int):
-        """Record this round in the loop's history."""
         self.state.history.append({
             "round": round_num,
             "expression": rr.expression_clean,
@@ -296,11 +236,6 @@ class DiscoveryLoop:
         })
 
     def get_summary(self) -> Dict:
-        """Return summary statistics of the run.
-
-        Returns:
-            Dictionary with best MSE, expression, round, final MSE, and MSE curve.
-        """
         mses = [r.test_mse for r in self.results if r.test_mse < float("inf")]
         return {
             "env_name": self.env.name,
@@ -314,11 +249,6 @@ class DiscoveryLoop:
         }
 
     def save_results(self, output_path: str):
-        """Save results to a JSON file.
-
-        Args:
-            output_path: Path to save results.
-        """
         summary = self.get_summary()
         summary["results"] = [
             {
@@ -338,18 +268,10 @@ class DiscoveryLoop:
         logger.info(f"Saved results to {output_path}")
 
     def load_checkpoint(self, checkpoint_path: str) -> int:
-        """Load state from a checkpoint file.
-
-        Args:
-            checkpoint_path: Path to checkpoint JSON.
-
-        Returns:
-            Round number to resume from (i.e., next round after checkpoint).
-        """
+        """Load state from checkpoint. Returns the next round number to run."""
         with open(checkpoint_path, "r") as f:
             ckpt = json.load(f)
 
-        # Reconstruct state from checkpoint
         if "all_inputs" in ckpt and ckpt["all_inputs"] is not None:
             self.state.all_inputs = np.array(ckpt["all_inputs"], dtype=np.float64)
             self.state.all_outputs = np.array(ckpt["all_outputs"], dtype=np.float64)
@@ -360,7 +282,6 @@ class DiscoveryLoop:
         self.state.total_cost = ckpt.get("total_cost", 0.0)
         self.state.history = ckpt.get("history", [])
 
-        # Reconstruct results
         for r_dict in ckpt.get("results", []):
             rr = RoundResult(
                 round_num=r_dict["round"],
@@ -380,11 +301,6 @@ class DiscoveryLoop:
         return last_round + 1
 
     def save_checkpoint(self, checkpoint_path: str):
-        """Save current state to a checkpoint file.
-
-        Args:
-            checkpoint_path: Path to save checkpoint.
-        """
         ckpt = {
             "all_inputs": self.state.all_inputs.tolist() if self.state.all_inputs is not None else None,
             "all_outputs": self.state.all_outputs.tolist() if self.state.all_outputs is not None else None,

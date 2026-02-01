@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """Main entry point for the grounded discovery experiment.
 
-Runs a preliminary sanity check (1 env × 1 condition × 5 rounds) before
-launching the full campaign. Safe to re-run — completed runs are skipped.
-
 Usage:
     python3 src/run_experiment.py                  # prelim + full campaign
     python3 src/run_experiment.py --prelim-only    # just the sanity check
@@ -41,17 +38,7 @@ logger = logging.getLogger("experiment")
 
 
 def run_prelim(llm: LLMClient) -> bool:
-    """Run a minimal sanity check: 1 env × Condition A × 5 rounds.
-
-    Validates:
-    - LLM API connectivity (Hyperbolic GPT-OSS)
-    - Environment evaluation works
-    - Expression parsing works
-    - Checkpoint save/load works
-    - End-to-end loop completes without crash
-
-    Returns True if all checks pass.
-    """
+    """Run a minimal sanity check: 1 env x Condition A x 5 rounds."""
     logger.info("=" * 60)
     logger.info("PRELIMINARY SANITY CHECK")
     logger.info("=" * 60)
@@ -62,7 +49,6 @@ def run_prelim(llm: LLMClient) -> bool:
     logger.info(f"Input names: {env.input_names}")
     logger.info(f"Input ranges: {env.input_ranges}")
 
-    # 1. Test LLM connectivity
     logger.info("[1/5] Testing LLM API connectivity...")
     try:
         result = llm.query(msg="Reply with just the number 42.", system_msg="You are a helpful assistant.")
@@ -76,7 +62,6 @@ def run_prelim(llm: LLMClient) -> bool:
         traceback.print_exc()
         return False
 
-    # 2. Test environment
     logger.info("[2/5] Testing environment evaluation...")
     try:
         inputs = env.sample_inputs(5)
@@ -87,7 +72,6 @@ def run_prelim(llm: LLMClient) -> bool:
         logger.error(f"  Environment failed: {e}")
         return False
 
-    # 3. Run 5 rounds of discovery loop
     logger.info("[3/5] Running 5-round discovery loop...")
     strategy = StaticCondition(points_per_round=5, total_rounds=5)
     loop = DiscoveryLoop(
@@ -108,11 +92,9 @@ def run_prelim(llm: LLMClient) -> bool:
         traceback.print_exc()
         return False
 
-    # 4. Test checkpoint save/load
     logger.info("[4/5] Testing checkpoint save/load...")
     try:
         loop.save_checkpoint(ckpt_path)
-        # Create a new loop and load checkpoint
         loop2 = DiscoveryLoop(
             env=env_cls(seed=42), llm=llm, strategy=strategy,
             total_rounds=5, points_per_round=5, seed=42,
@@ -121,13 +103,11 @@ def run_prelim(llm: LLMClient) -> bool:
         assert resume_round == 6, f"Expected resume_round=6, got {resume_round}"
         assert len(loop2.results) == 5, f"Expected 5 results, got {len(loop2.results)}"
         logger.info(f"  Checkpoint OK: would resume from round {resume_round}")
-        # Clean up
         Path(ckpt_path).unlink(missing_ok=True)
     except Exception as e:
         logger.error(f"  Checkpoint test failed: {e}")
         return False
 
-    # 5. Save results
     logger.info("[5/5] Saving prelim results...")
     try:
         loop.save_results(results_path)
@@ -146,7 +126,6 @@ def run_prelim(llm: LLMClient) -> bool:
 
 
 def run_analysis(config: CampaignConfig):
-    """Run comprehensive data collection and analysis on current results."""
     logger.info("Running analysis and data collection...")
     try:
         report_path = collect_all(
@@ -159,7 +138,6 @@ def run_analysis(config: CampaignConfig):
 
 
 def run_campaign(llm: LLMClient):
-    """Run the full 162-run campaign with periodic analysis."""
     logger.info("=" * 60)
     logger.info("STARTING FULL CAMPAIGN")
     logger.info("=" * 60)
@@ -171,7 +149,6 @@ def run_campaign(llm: LLMClient):
 
     runner = CampaignRunner(config)
 
-    # Run with periodic analysis every 10 completed runs
     runs = config.generate_runs()
     completed = 0
     skipped = 0
@@ -198,17 +175,14 @@ def run_campaign(llm: LLMClient):
         logger.info(f"Progress: {completed + skipped}/{len(runs)} "
                      f"(completed={completed}, skipped={skipped}, failed={failed})")
 
-        # Periodic analysis checkpoint
         if completed > 0 and completed % analysis_interval == 0:
             run_analysis(config)
 
     logger.info(f"Campaign finished: {completed} new, {skipped} skipped, "
                  f"{failed} failed, total_cost=${runner.total_cost:.2f}")
 
-    # Final comprehensive analysis
     run_analysis(config)
 
-    # Print summary table
     results = runner.get_results_table()
     completed_runs = [r for r in results if r.get("status") == "completed"]
     logger.info(f"\nFinal: {len(completed_runs)}/{config.total_runs} runs completed")
@@ -226,14 +200,15 @@ def main():
                        help="Skip preliminary check, go straight to campaign")
     args = parser.parse_args()
 
-    # Ensure results directory exists (for log file)
     Path(_repo_root / "src" / "results").mkdir(parents=True, exist_ok=True)
 
     config = CampaignConfig()
+    # TEMP: GPT-OSS uses reasoning tokens from the output budget.
+    # Keep max_tokens low so reasoning doesn't consume entire output.
     llm = LLMClient(
         model_names=[config.llm_model],
         temperatures=0.7,
-        max_tokens=4096,
+        max_tokens=2048,
     )
     logger.info(f"LLM model: {config.llm_model}")
 

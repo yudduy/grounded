@@ -1,8 +1,4 @@
-"""Campaign runner for 162 experimental runs.
-
-Orchestrates all environment x condition x seed combinations.
-Supports checkpoint/resume from SQLite + per-round JSON checkpoints.
-"""
+"""Campaign runner — orchestrates all env x condition x seed combinations."""
 import sys
 import json
 import logging
@@ -43,8 +39,6 @@ CONDITION_MAP = {
 
 
 class CampaignRunner:
-    """Orchestrates all experimental runs with checkpoint/resume."""
-
     def __init__(self, config: CampaignConfig):
         self.config = config
         self.db_path = Path(config.db_path)
@@ -54,7 +48,6 @@ class CampaignRunner:
         self.total_cost = 0.0
 
     def _init_db(self):
-        """Initialize SQLite database for results tracking."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("PRAGMA journal_mode=WAL")
@@ -93,7 +86,6 @@ class CampaignRunner:
         conn.close()
 
     def _get_run_status(self, run: RunConfig) -> Optional[str]:
-        """Get run status from DB. Returns None if not started."""
         conn = sqlite3.connect(str(self.db_path))
         row = conn.execute(
             "SELECT status FROM runs WHERE env_name=? AND condition=? AND seed=?",
@@ -106,7 +98,6 @@ class CampaignRunner:
         return self._get_run_status(run) == "completed"
 
     def _mark_started(self, run: RunConfig):
-        """Mark a run as in-progress in the DB."""
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("""
             INSERT OR REPLACE INTO runs
@@ -117,7 +108,6 @@ class CampaignRunner:
         conn.close()
 
     def _save_round_result(self, run: RunConfig, rr: RoundResult):
-        """Persist a single round result to SQLite (incremental)."""
         try:
             conn = sqlite3.connect(str(self.db_path))
             conn.execute("""
@@ -155,17 +145,14 @@ class CampaignRunner:
         conn.close()
 
     def _checkpoint_path(self, run: RunConfig) -> str:
-        """Get the per-run JSON checkpoint path."""
         ckpt_dir = self.results_dir / "checkpoints"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         return str(ckpt_dir / f"{run.env_name}_{run.condition}_s{run.seed}.ckpt.json")
 
     def _results_path(self, run: RunConfig) -> str:
-        """Get the per-run JSON results path."""
         return str(self.results_dir / f"{run.env_name}_{run.condition}_s{run.seed}.json")
 
     def _make_strategy(self, run: RunConfig):
-        """Create the condition strategy for a run."""
         cond_class = CONDITION_MAP[run.condition]
         kwargs = {
             "points_per_round": run.points_per_round,
@@ -176,7 +163,6 @@ class CampaignRunner:
         return cond_class(**kwargs)
 
     def run_single(self, run: RunConfig, llm: LLMClient) -> Dict:
-        """Execute a single experimental run with checkpoint/resume."""
         logger.info(f"Starting: {run.env_name} / {run.condition} / seed={run.seed}")
         self._mark_started(run)
 
@@ -191,7 +177,6 @@ class CampaignRunner:
             seed=run.seed,
         )
 
-        # Resume from per-round checkpoint if it exists
         ckpt_path = self._checkpoint_path(run)
         start_round = 1
         if Path(ckpt_path).exists():
@@ -203,7 +188,6 @@ class CampaignRunner:
                 logger.warning(f"Checkpoint load failed, starting fresh: {e}")
                 start_round = 1
 
-        # Run with per-round checkpointing and DB writes
         def on_round(rr: RoundResult):
             self._save_round_result(run, rr)
 
@@ -216,10 +200,8 @@ class CampaignRunner:
         summary = loop.get_summary()
         self._save_run_result(run, summary)
 
-        # Save full results JSON
         loop.save_results(self._results_path(run))
 
-        # Clean up checkpoint after successful completion
         try:
             Path(ckpt_path).unlink(missing_ok=True)
         except Exception:
@@ -230,7 +212,6 @@ class CampaignRunner:
         return summary
 
     def run_all(self, llm: LLMClient):
-        """Run all configured experiments, skipping completed ones."""
         runs = self.config.generate_runs()
         completed = 0
         skipped = 0
@@ -260,7 +241,6 @@ class CampaignRunner:
                      f"{failed} failed, total_cost=${self.total_cost:.2f}")
 
     def get_results_table(self) -> List[Dict]:
-        """Get all results as a list of dicts."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM runs ORDER BY env_name, condition, seed").fetchall()

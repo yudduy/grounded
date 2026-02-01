@@ -1,13 +1,8 @@
-"""Prompt templates for the discovery loop.
-
-Each step of the CHOOSE→OBSERVE→HYPOTHESIZE→FIT→EVALUATE→REFLECT→CURATE
-loop uses specific prompts. Templates are parameterized with f-strings.
-"""
+"""Prompt templates for the discovery loop."""
 
 import numpy as np
 
-# Maximum observations to include in prompts to stay within token budget.
-# 100 rounds × 5 pts/round = 500 total; we show most recent 200.
+# 100 rounds x 5 pts/round = 500 total; show most recent 200 in prompts
 MAX_PROMPT_OBSERVATIONS = 200
 
 
@@ -34,7 +29,8 @@ Previous observations ({n_obs} total):
 
 Choose {n_points} input points as a Python list of lists.
 Format: [[x1_val, x2_val, ...], ...]
-Reply with ONLY the Python list."""
+IMPORTANT: Your final answer MUST be on the LAST line as ONLY the Python list.
+No explanation after it — just the list."""
 
 
 HYPOTHESIZE_SYSTEM = """You are a scientist analyzing experimental data to discover a hidden physical law.
@@ -45,7 +41,8 @@ Valid ranges: {input_ranges}
 
 Your task: propose a mathematical equation y = f({input_args}) that best fits
 all observations. Use Python/numpy syntax (np.sin, np.cos, np.sqrt, np.exp, np.log, etc.).
-Think about what functional forms could produce the patterns you see."""
+IMPORTANT: Use NUMERIC coefficients only (e.g., -4.9 * time**2, not A * time**2).
+Do NOT use symbolic parameters like A, B, C — estimate actual numbers from the data."""
 
 HYPOTHESIZE_USER = """Round {round_num}/{total_rounds}.
 
@@ -57,7 +54,9 @@ All observations ({n_obs} points):
 {reflection_section}
 
 Propose your best equation for y = f({input_args}).
-Reply with ONLY the Python expression (no y= prefix)."""
+IMPORTANT: Your final answer MUST be on the LAST line, as a plain Python/numpy expression.
+No y= prefix, no explanation — just the expression on the last line.
+Example final line: 2.5 * time**2 - 0.3 * np.sin(y_offset)"""
 
 
 REFLECT_SYSTEM = """You are a scientist reflecting on your equation discovery process.

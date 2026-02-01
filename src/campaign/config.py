@@ -1,28 +1,24 @@
-"""Configuration for the experiment campaign.
-
-Defines all experimental conditions, environments, and run parameters.
-"""
+"""Configuration for the experiment campaign."""
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 
 
 @dataclass
 class RunConfig:
-    """Configuration for a single experimental run."""
     env_name: str
     condition: str  # "A", "B", "C", "D", "E", "F", "R"
     seed: int
     total_rounds: int = 100
     points_per_round: int = 5
     # TEMP: Using Hyperbolic GPT-OSS 20B for PoC (~$6 for full campaign)
-    # Production: switch back to "gpt-4o-mini" or "gpt-4.1-nano"
+    # It's a reasoning model — expression_parser extracts equations from chain-of-thought.
+    # Production: switch to "gpt-4o-mini" or "gpt-4.1-nano"
     llm_model: str = "hyperbolic/openai/gpt-oss-20b"
     budget_per_run: float = 1.0  # USD (TEMP: lowered for cheap PoC model)
 
 
 @dataclass
 class CampaignConfig:
-    """Configuration for the full experiment campaign."""
     environments: List[str] = field(default_factory=lambda: [
         "ExponentialDampedGravity",
         "AsymmetricDrag",
@@ -49,7 +45,6 @@ class CampaignConfig:
     db_path: str = "results/campaign.sqlite"
 
     def generate_runs(self) -> List[RunConfig]:
-        """Generate all run configurations."""
         runs = []
         for env_name in self.environments:
             for cond in self.conditions:
