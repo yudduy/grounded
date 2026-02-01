@@ -78,6 +78,28 @@ class ConditionStrategy(Protocol):
                llm: LLMClient) -> str: ...
 
 
+class _CostTrackingLLM:
+    """Thin wrapper around LLMClient that accumulates query costs."""
+
+    def __init__(self, llm: LLMClient):
+        self._llm = llm
+        self.round_cost: float = 0.0
+
+    def __getattr__(self, name):
+        return getattr(self._llm, name)
+
+    def query(self, **kwargs):
+        result = self._llm.query(**kwargs)
+        if result is not None and hasattr(result, 'cost') and result.cost is not None:
+            self.round_cost += float(result.cost)
+        return result
+
+    def reset_round_cost(self) -> float:
+        cost = self.round_cost
+        self.round_cost = 0.0
+        return cost
+
+
 class DiscoveryLoop:
     """Main orchestrator for the equation discovery experiment."""
 
@@ -87,7 +109,7 @@ class DiscoveryLoop:
                  points_per_round: int = 5,
                  seed: int = 0):
         self.env = env
-        self.llm = llm
+        self.llm = _CostTrackingLLM(llm)
         self.strategy = strategy
         self.total_rounds = total_rounds
         self.points_per_round = points_per_round
@@ -96,9 +118,10 @@ class DiscoveryLoop:
         self.results: List[RoundResult] = []
 
     def _track_cost(self, result) -> float:
+        cost = 0.0
         if result is not None and hasattr(result, 'cost') and result.cost is not None:
-            return float(result.cost)
-        return 0.0
+            cost = float(result.cost)
+        return cost
 
     def run(self, start_round: int = 1,
             checkpoint_path: Optional[str] = None,
@@ -133,6 +156,7 @@ class DiscoveryLoop:
 
     def _run_round(self, round_num: int) -> RoundResult:
         """Execute one complete round of the discovery loop."""
+        self.llm.reset_round_cost()
         rr = RoundResult(round_num=round_num)
 
         # CHOOSE
@@ -228,6 +252,7 @@ class DiscoveryLoop:
         return rr
 
     def _record_history(self, rr: RoundResult, round_num: int):
+        rr.llm_cost = self.llm.round_cost
         self.state.history.append({
             "round": round_num,
             "expression": rr.expression_clean,

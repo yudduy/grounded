@@ -230,7 +230,7 @@ class TemplateLibrary:
         candidates = []
 
         for name, tmpl in cls.TEMPLATES.items():
-            if tmpl["n_inputs"] != n_inputs and tmpl["n_inputs"] < n_inputs:
+            if tmpl["n_inputs"] != n_inputs:
                 continue
             score = 0.0
 
