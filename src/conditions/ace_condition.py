@@ -135,7 +135,7 @@ class ACECondition(StaticCondition):
 
         if self._reflector is not None:
             try:
-                bullets_used = format_bullets_used(state.history)
+                bullets_used = format_bullets_used(state.history, playbook=self._playbook)
                 reflection, bullet_tags, call_info = self._reflector.reflect(
                     question=f"Discover equation for {env.name}",
                     reasoning_trace=round_result.expression_clean or "",
@@ -177,7 +177,7 @@ class ACECondition(StaticCondition):
                     self._rounds_since_improvement = 0
 
         # Adaptive interval: curate more often during plateaus
-        interval = max(5, self.curate_interval) if self._rounds_since_improvement >= 3 else self.curate_interval
+        interval = min(5, self.curate_interval) if self._rounds_since_improvement >= 3 else self.curate_interval
         if self._rounds_since_curate < interval:
             return self._playbook
         self._rounds_since_curate = 0
@@ -186,7 +186,7 @@ class ACECondition(StaticCondition):
 
         if self._curator is not None:
             try:
-                perf_summary = format_bullets_used(state.history, n_recent=self.curate_interval)
+                perf_summary = format_bullets_used(state.history, n_recent=self.curate_interval, playbook=self._playbook)
                 last_reflection = ""
                 if state.history:
                     last_reflection = state.history[-1].get("reflection", "")
@@ -221,7 +221,7 @@ class ACECondition(StaticCondition):
 
         # Fallback: ask LLM to update playbook
         ctx = EQUATION_CURATOR_CONTEXT.format(
-            performance_summary=format_bullets_used(state.history, self.curate_interval))
+            performance_summary=format_bullets_used(state.history, self.curate_interval, playbook=self._playbook))
         sys_msg = "You are curating an equation discovery playbook. Update it based on recent results."
         result = llm.query(msg=ctx, system_msg=sys_msg)
         if result and result.content:

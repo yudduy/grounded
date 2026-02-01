@@ -4,19 +4,19 @@ Customizes the standard ACE prompts for the equation discovery domain.
 """
 
 EQUATION_PLAYBOOK_TEMPLATE = """## EQUATION FORMS
-(Functional forms that have shown promise)
+[eq-00001] helpful=0 harmful=0 :: Try simple polynomial forms before complex nonlinear ones
 
 ## SUCCESSFUL EXAMPLES
-(Top equations discovered so far with their MSE)
+[eq-00002] helpful=0 harmful=0 :: Track top equations with their MSE for reference
 
 ## PARAMETER STRATEGIES
-(Approaches for estimating parameter values)
+[eq-00003] helpful=0 harmful=0 :: Use least-squares fitting after choosing functional form
 
 ## EXPLORATION HEURISTICS
-(Strategies for choosing informative input points)
+[eq-00004] helpful=0 harmful=0 :: Vary one input dimension at a time to isolate dependencies
 
 ## COMMON MISTAKES
-(Pitfalls to avoid in equation discovery)
+[eq-00005] helpful=0 harmful=0 :: Avoid overfitting by preferring simpler expressions
 """
 
 EQUATION_GENERATOR_CONTEXT = """You are discovering a hidden physical law y = f({input_args}).
@@ -48,8 +48,27 @@ Recent performance: {performance_summary}
 """
 
 
-def format_bullets_used(state_history, n_recent=5):
-    """Format recent playbook bullets used for the reflector."""
+def format_bullets_used(state_history, n_recent=5, playbook=None):
+    """Format recent playbook bullets used for the reflector.
+
+    Parses the current playbook for canonical bullet lines ([id] ... :: content)
+    and returns them in the format the ACE Reflector expects for tagging.
+    Falls back to expression history if no playbook bullets are available.
+    """
+    import re
+
+    bullets = []
+    if playbook:
+        for line in playbook.splitlines():
+            m = re.match(r"^\[([a-z]+-\d+)\]\s+(helpful=\d+\s+harmful=\d+)\s+::\s+(.+)$", line.strip())
+            if m:
+                bullet_id, counts, content = m.group(1), m.group(2), m.group(3)
+                bullets.append(f"[{bullet_id}] {counts} :: {content}")
+
+    if bullets:
+        return "\n".join(bullets)
+
+    # Fallback: summarize recent history when no playbook is available
     recent = state_history[-n_recent:] if state_history else []
     lines = []
     for h in recent:
