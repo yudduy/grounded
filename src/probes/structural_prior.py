@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Dict, List
 
 _repo_root = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_repo_root / "ShinkaEvolve"))
+for _rel in ("src", "ShinkaEvolve", "ace"):
+    _p = _repo_root / _rel
+    if _p.exists():
+        sys.path.insert(0, str(_p))
 
-from shinka.llm.llm import LLMClient
+from llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 

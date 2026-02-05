@@ -13,12 +13,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable, Any, Protocol
 
 _repo_root = Path(__file__).resolve().parent.parent.parent
-for _rel in ("src", "ShinkaEvolve", "ace"):
-    _p = _repo_root / _rel
-    if _p.exists():
-        sys.path.insert(0, str(_p))
+sys.path.insert(0, str(_repo_root / "ShinkaEvolve"))
+sys.path.insert(0, str(_repo_root / "src"))
 
-from llm_client import LLMClient
+from shinka.llm.llm import LLMClient
 from environments.base import BaseEnvironment
 from loop.expression_parser import parse_expression, clean_expression
 from loop import prompt_templates as pt

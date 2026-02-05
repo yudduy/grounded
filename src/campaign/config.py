@@ -41,8 +41,8 @@ class CampaignConfig:
     llm_model: str = "hyperbolic/openai/gpt-oss-20b"
     budget_total: float = 20.0  # TEMP: lowered for cheap PoC model
     budget_per_run: float = 1.0  # TEMP: lowered for cheap PoC model
-    results_dir: str = "results"
-    db_path: str = "results/campaign.sqlite"
+    results_dir: str = "src/results"
+    db_path: str = "src/results/campaign.sqlite"
 
     def generate_runs(self) -> List[RunConfig]:
         runs = []

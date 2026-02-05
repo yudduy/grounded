@@ -5,7 +5,6 @@ from pathlib import Path
 repo_root = Path(__file__).resolve().parent.parent
 
 # Add ace/ and ShinkaEvolve/ to path so we can import them
-for _rel in ("src", "ace", "ShinkaEvolve"):
-    _p = repo_root / _rel
-    if _p.exists():
-        sys.path.insert(0, str(_p))
+sys.path.insert(0, str(repo_root / "ace"))
+sys.path.insert(0, str(repo_root / "ShinkaEvolve"))
+sys.path.insert(0, str(repo_root / "src"))

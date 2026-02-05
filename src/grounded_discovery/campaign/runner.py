@@ -8,12 +8,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 _repo_root = Path(__file__).resolve().parent.parent.parent
-for _rel in ("src", "ShinkaEvolve", "ace"):
-    _p = _repo_root / _rel
-    if _p.exists():
-        sys.path.insert(0, str(_p))
+sys.path.insert(0, str(_repo_root / "ShinkaEvolve"))
+sys.path.insert(0, str(_repo_root / "src"))
 
-from llm_client import LLMClient
+from shinka.llm.llm import LLMClient
 from environments import ALL_ENVIRONMENTS
 from loop.orchestrator import DiscoveryLoop, RoundResult
 from conditions.static import StaticCondition

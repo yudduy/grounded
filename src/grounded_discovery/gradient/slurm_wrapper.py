@@ -26,6 +26,7 @@ cd {work_dir}
 python -c "
 import sys
 sys.path.insert(0, '{src_dir}')
+sys.path.insert(0, '{shinka_dir}')
 
 import json
 import numpy as np
@@ -38,12 +39,12 @@ expr_str = data['expr_str']
 
 result = fit_expression(expr_str, inputs, targets)
 if result is not None:
-    output = {
+    output = {{
         'template_name': result.template_name,
         'params': result.params.tolist(),
         'param_names': result.param_names,
         'train_mse': result.train_mse,
-    }
+    }}
 else:
     output = None
 
@@ -72,6 +73,8 @@ def submit_fit_job(expr_str: str, inputs, targets,
     log_dir_path.mkdir(parents=True, exist_ok=True)
 
     src_dir = str(Path(__file__).resolve().parent.parent)
+    repo_root = str(Path(__file__).resolve().parent.parent.parent)
+    shinka_dir = str(Path(repo_root) / "ShinkaEvolve")
 
     # Save data
     data_path = str(log_dir_path / f"fit_data_{job_id}.json")
@@ -86,7 +89,7 @@ def submit_fit_job(expr_str: str, inputs, targets,
     # Write SLURM script
     script = SLURM_TEMPLATE.format(
         job_id=job_id, log_dir=str(log_dir_path),
-        work_dir=src_dir, src_dir=src_dir,
+        work_dir=src_dir, src_dir=src_dir, shinka_dir=shinka_dir,
         data_path=data_path, result_path=result_path,
     )
     script_path = str(log_dir_path / f"fit_script_{job_id}.sh")

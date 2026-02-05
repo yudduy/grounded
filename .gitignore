@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 .claude/
-docs/
 results/
 src/results/
 src/.venv/
