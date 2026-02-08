@@ -45,7 +45,10 @@ ANSWER_REGEX = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
 
 def extract_numeric_answer(text: str) -> str:
     matches = ANSWER_REGEX.findall(text.replace(",", ""))
-    return matches[-1].lstrip("0") if matches else text.strip()
+    if not matches:
+        return text.strip()
+    result = matches[-1].lstrip("0")
+    return result if result else "0"
 
 
 def last_boxed_only_string(string: str) -> str:
@@ -401,6 +404,20 @@ def majority_vote(answers: List[str]) -> str:
     return counter.most_common(1)[0][0]
 
 
+def majority_vote_confidence(answers: List[str]) -> Tuple[str, float]:
+    """Return (winner, confidence) where confidence = fraction of votes for winner."""
+    counter = Counter()
+    for a in answers:
+        try:
+            counter[str(int(float(a.replace(",", ""))))] += 1
+        except (ValueError, TypeError):
+            counter[a.strip()] += 1
+    if not counter:
+        return "", 0.0
+    winner, count = counter.most_common(1)[0]
+    return winner, count / len(answers)
+
+
 # ---------------------------------------------------------------------------
 # Reflect
 # ---------------------------------------------------------------------------
@@ -461,7 +478,7 @@ async def curate_async(playbook: Playbook, reflection: str, question: str) -> Pl
         f"Current playbook:\n{pb_text}\n\n"
         f"Reflection:\n{reflection}"
     )
-    raw = await llm_call_async(system, user, role="curator", temperature=0.7)
+    raw = await llm_call_async(system, user, role="curator", temperature=0.4)
 
     # Parse JSON operations
     json_match = re.search(r"\[.*\]", raw, re.DOTALL)
@@ -547,7 +564,7 @@ async def run_dc(problems: List[dict], n_candidates: int = 8) -> List[dict]:
         # Generate N candidates using current playbook
         responses = await generate_n(p["problem"], n_candidates, playbook=playbook, temperature=0.7)
         answers = [r[0] for r in responses]
-        winner = majority_vote(answers)
+        winner, confidence = majority_vote_confidence(answers)
         correct = check_answer(winner, p["answer"])
 
         # Find best response (one that matches majority vote)
@@ -568,10 +585,12 @@ async def run_dc(problems: List[dict], n_candidates: int = 8) -> List[dict]:
             best_raw = responses[0][2]
             best_bullets = responses[0][1]
 
-        # Reflect (using self-consistency verdict, NOT ground truth)
+        # Reflect using self-consistency confidence as correctness proxy
+        # High consensus (>50%) treated as likely correct; low as likely wrong
+        is_confident = confidence > 0.5
         reflection, tags = await reflect_async(
             p["problem"], best_raw, winner, "N/A (self-consistency)",
-            best_bullets, playbook, is_correct=True  # always "correct" from self-consistency POV
+            best_bullets, playbook, is_correct=is_confident
         )
         for bid, tag in tags.items():
             playbook.tag(bid, tag)
