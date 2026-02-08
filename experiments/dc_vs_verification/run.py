@@ -664,35 +664,48 @@ async def run_dc_verified(problems: List[dict], n_candidates: int = 8) -> List[d
 def start_vllm() -> subprocess.Popen:
     """Start vLLM server and wait until ready."""
     print(f"Starting vLLM server with {MODEL_NAME}...")
+    vllm_log = RESULTS_DIR / "vllm_server.log"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    log_fh = open(vllm_log, "w")
     proc = subprocess.Popen(
         [
             sys.executable, "-m", "vllm.entrypoints.openai.api_server",
             "--model", MODEL_NAME,
             "--port", str(VLLM_PORT),
             "--dtype", "bfloat16",
-            "--gpu-memory-utilization", "0.95",
+            "--gpu-memory-utilization", "0.90",
             "--max-model-len", "8192",
             "--max-num-seqs", "512",
             "--max-num-batched-tokens", "16384",
             "--enable-prefix-caching",
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
     )
-    # Wait for server
+    print(f"vLLM PID: {proc.pid}, log: {vllm_log}")
+    # Wait for server (up to 10 minutes)
     init_clients()
-    for attempt in range(120):
+    for attempt in range(300):
+        if proc.poll() is not None:
+            log_fh.close()
+            with open(vllm_log) as f:
+                tail = f.read()[-2000:]
+            raise RuntimeError(f"vLLM process died (exit={proc.returncode}). Last log:\n{tail}")
         try:
             client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=1,
             )
-            print(f"vLLM server ready (PID: {proc.pid})")
+            print(f"vLLM server ready after ~{attempt*2}s (PID: {proc.pid})")
             return proc
         except Exception:
             time.sleep(2)
-    raise RuntimeError("vLLM server failed to start within 4 minutes")
+    log_fh.close()
+    with open(vllm_log) as f:
+        tail = f.read()[-2000:]
+    proc.terminate()
+    raise RuntimeError(f"vLLM server failed to start within 10 minutes. Last log:\n{tail}")
 
 
 def stop_vllm(proc: subprocess.Popen):

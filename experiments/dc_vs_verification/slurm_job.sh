@@ -2,7 +2,7 @@
 #SBATCH --job-name=dc-vs-verify
 #SBATCH --output=experiments/dc_vs_verification/results/slurm_%j.out
 #SBATCH --error=experiments/dc_vs_verification/results/slurm_%j.err
-#SBATCH --time=02:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
@@ -31,8 +31,8 @@ elif [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# Run with timeout (100 min for experiment + buffer)
-timeout 6000 python3 experiments/dc_vs_verification/run.py --seeds 42 123 7
+# Run with timeout (23 hours, leaving buffer before wall time)
+timeout 82800 python3 experiments/dc_vs_verification/run.py --seeds 42 123 7
 
 EXIT_CODE=$?
 
