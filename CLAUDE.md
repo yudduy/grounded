@@ -15,355 +15,319 @@ Stanford FarmShare shared cluster (rice-XX nodes). Home directories are NFS-moun
 
 ## Repository Structure
 
-This repo contains three independent projects under `/home/users/duynguy/proj/grounded/`:
+```
+grounded/
+├── CLAUDE.md                 # This file
+├── .gitignore                # Excludes: __pycache__, results/, *.sqlite, *.log, newton/, ShinkaEvolve/
+├── src/                      # Main codebase: grounded-discovery experiment
+│   ├── pyproject.toml        # Package: grounded-discovery v0.1.0 (Python >=3.10)
+│   ├── conftest.py           # Pytest configuration
+│   ├── run_experiment.py     # Main entry point (prelim + campaign)
+│   ├── llm_client.py         # LLM abstraction (ShinkaEvolve fallback → raw OpenAI-compatible HTTP)
+│   ├── slurm_prelim.sh       # SLURM job submission script
+│   ├── environments/         # 9 counterfactual physics environments
+│   ├── loop/                 # Discovery loop orchestrator + expression parser + prompts
+│   ├── conditions/           # 7 experimental conditions (A-F + random baseline)
+│   ├── gradient/             # Warp-based parameter fitting + SLURM wrapper
+│   ├── ace_adapter/          # ACE framework adapter (data processor, prompts, DrSR)
+│   ├── campaign/             # Campaign runner + config (162 runs)
+│   ├── probes/               # Zero-shot and structural prior probes
+│   ├── analysis/             # Statistics, plots, symbolic recovery, Levin extension
+│   ├── tests/                # Unit tests (environments, kernels)
+│   └── grounded_discovery/   # Parallel namespace package (mirrors src/)
+├── ace/                      # Reserved for ACE framework imports (currently empty)
+├── notebooks/                # Jupyter notebooks
+│   ├── search_augmented_ace_poc.ipynb          # MCTS/bandit search over ACE playbooks on GSM8K
+│   └── verified_archetype_discovery_poc.ipynb  # Game of 24 verification task
+└── docs/
+    ├── specs/
+    │   ├── grounded-discovery.spec.md          # Full experiment requirements (15 REQ items)
+    │   └── search-augmented-ace-poc.spec.md    # PoC spec (Greedy/PUCT/ES on GSM8K)
+    ├── discoveries/
+    │   └── grounded-discovery/
+    │       ├── DISCOVERY.md   # Experiment design v3, landscape, hypothesis (iteration 6)
+    │       └── LOG.md         # Append-only research log (6 iterations)
+    └── research/
+        └── grounded-abduction/
+            ├── KNOWLEDGE.md   # Literature knowledge base
+            └── MINDMAP.md     # Research connections map
+```
+
+### External Dependencies (gitignored, cloned separately)
+
+- `ShinkaEvolve/` — LLM-guided evolutionary algorithm framework ([sakana.ai](https://sakana.ai/shinka-evolve/))
+- `newton/` — GPU-accelerated physics simulation engine (NVIDIA Warp + MuJoCo Warp)
+- `ace/` — Agentic Context Engineering framework (Generator/Reflector/Curator)
 
 ---
 
-## ShinkaEvolve — LLM-Guided Evolutionary Algorithm Framework
+## Grounded Discovery — The Main Experiment
 
-Evolves populations of programs using LLMs as intelligent mutation operators. Multi-island evolutionary model with archive-based knowledge transfer.
+### What It Is
+
+A controlled experiment testing whether **evolving context memory (ACE-style playbooks)** improves LLM-based equation recovery from interactive experiments on counterfactual physics environments. The core scientific question: *does structured context accumulation help when LLMs must reason from scratch on non-memorizable tasks?*
 
 ### Commands
 
 ```bash
-cd ShinkaEvolve && uv venv --python 3.11 && source .venv/bin/activate && uv pip install -e .
-shinka_launch variant=circle_packing_example          # Run evolution (Hydra)
-shinka_visualize --port 8888 --open                   # WebUI
-pytest tests/                                          # Tests
-black shinka/ && isort shinka/ && flake8 shinka/       # Lint
+cd src && uv venv --python 3.11 && source .venv/bin/activate && uv pip install -e .
+
+# Run experiment
+python3 src/run_experiment.py                  # prelim + full campaign
+python3 src/run_experiment.py --prelim-only    # just the sanity check
+python3 src/run_experiment.py --skip-prelim    # skip straight to campaign
+
+# Tests (submit via SLURM, not login node)
+timeout 300 pytest src/tests/
+
+# Lint
+black src/ && isort src/ && flake8 src/
 ```
 
-**Configuration:** Hydra hierarchy under `configs/` — layers: task, evolution, database, cluster, variant. Override via CLI: `shinka_launch task=circle_packing evolution=large_budget cluster=remote`.
+### Architecture
 
-### Programmatic API
-
-**EvolutionRunner** — main orchestrator (`shinka/core/runner.py`):
-```python
-from shinka.core.runner import EvolutionRunner, EvolutionConfig
-from shinka.database.dbase import DatabaseConfig
-from shinka.launch.scheduler import LocalJobConfig
-
-runner = EvolutionRunner(
-    evo_config=EvolutionConfig(
-        num_generations=10, llm_models=["gpt-4o"], patch_types=["diff", "full"],
-        task_sys_msg="Optimize circle packing...", init_program_path="initial.py",
-    ),
-    job_config=LocalJobConfig(eval_program_path="evaluate.py"),
-    db_config=DatabaseConfig(num_islands=4, parent_selection_strategy="power_law"),
-)
-runner.run()  # Blocks until complete; auto-resumes if db_path exists
+**Discovery Loop** (`src/loop/orchestrator.py`):
+```
+For round r = 1..100:
+  1. CHOOSE INPUTS   → LLM selects values for x_1..x_n
+  2. OBSERVE         → Environment returns y = f(x_1..x_n) + noise
+  3. HYPOTHESIZE     → LLM proposes y = g(x_1..x_n; θ) as Python expression
+  4. FIT             → wp.Tape() optimizes θ (gradient conditions only)
+  5. EVALUATE        → MSE on accumulated data + 50 held-out test points
+  6. REFLECT         → ACE Reflector tags playbook bullets (ACE conditions)
+  7. CURATE          → ACE Curator evolves playbook (every 10 rounds, ACE conditions)
 ```
 
-**LLMClient** — standalone LLM queries (`shinka/llm/llm.py`):
-```python
-from shinka.llm.llm import LLMClient
-llm = LLMClient(model_names=["claude-3-sonnet"], temperatures=0.75, max_tokens=4096)
-result = llm.query(msg="Write factorial function", system_msg="Python expert")
-results = llm.batch_query(num_samples=5, msg="...", system_msg="...")
-```
-Supports: OpenAI, Anthropic, Azure (`"azure-{model}"`), DeepSeek, Gemini, Bedrock, OpenRouter (`"{provider}/{model}"`). Dynamic model selection via bandits (`llm_dynamic_selection="ucb"`).
+**Key Interfaces**:
+- `ConditionStrategy` (Protocol) — pluggable experimental conditions
+- `BaseEnvironment` — abstract base for counterfactual physics (9 implementations)
+- `DiscoveryLoop` — main orchestrator, accepts any `ConditionStrategy`
+- `LLMClient` — tries ShinkaEvolve's client, falls back to raw OpenAI-compatible HTTP
+- `CampaignRunner` — orchestrates 162 runs (9 envs × 6 conditions × 3 seeds)
 
-**ProgramDatabase** — population storage (`shinka/database/dbase.py`):
-```python
-from shinka.database.dbase import ProgramDatabase, DatabaseConfig, Program
-db = ProgramDatabase(DatabaseConfig(db_path="evolution.sqlite"), read_only=True)
-best = db.get_best_program()                     # Best correct program
-top = db.get_top_programs(n=10, correct_only=True)
-parent, archive_insps, topk_insps = db.sample()  # Sample parent + inspirations
-db.add(Program(id="p1", code="...", combined_score=0.95, correct=True))
-```
+### Environments (9 total)
 
-**PromptSampler** — mutation prompt generation (`shinka/core/sampler.py`):
-```python
-from shinka.core.sampler import PromptSampler
-sampler = PromptSampler(task_sys_msg="...", patch_types=["diff","full","cross"])
-sys_msg, user_msg = sampler.initial_program_prompt()
-sys_msg, user_msg, patch_type = sampler.sample(parent, archive_insps, topk_insps)
-```
+**Tier 1 — Level 2 symmetry violations** (6 envs):
+- `ExponentialDampedGravity` — modified gravitational coupling
+- `AsymmetricDrag` — direction-dependent drag
+- `NonReciprocalSpring` — Newton's 3rd law broken
+- `VelocityDependentMass` — non-standard relativistic mass
+- `CoupledNonlinearDamping` — coupled damped oscillator
+- `FractionalDrag` — fractional-power drag
 
-**Patch application** — pure functions (`shinka/edit/`):
-```python
-from shinka.edit.apply_diff import apply_diff_patch
-from shinka.edit.apply_full import apply_full_patch
-updated_code, n_applied, path, err, txt, diff = apply_diff_patch(patch_str, original_str=code)
-```
-Both only edit code inside `# EVOLVE-BLOCK-START ... # EVOLVE-BLOCK-END` markers.
+**Tier 2 — Level 3 structural novelty** (3 envs):
+- `NonPolynomialConserved` — non-polynomial conserved quantity
+- `CrossCoupledDynamics` — unknown cross-coupling
+- `HistoryDependentForce` — delay-differential force
 
-**JobScheduler** — execute evaluations (`shinka/launch/scheduler.py`):
-```python
-from shinka.launch.scheduler import JobScheduler, LocalJobConfig, SlurmCondaJobConfig
-sched = JobScheduler(job_type="local", config=LocalJobConfig(), max_workers=4)
-results, runtime = sched.run(exec_fname, results_dir)         # Sync
-job = sched.submit_async(exec_fname, results_dir)              # Async
-```
-Job types: `"local"`, `"slurm_docker"` (SlurmDockerJobConfig), `"slurm_conda"` (SlurmCondaJobConfig).
+All environments present data as anonymous `x_1..x_n → y` with no physics labels.
 
-### Composability
+### Experimental Conditions
 
-Independently usable: `LLMClient`, `PromptSampler`, `EmbeddingClient`, `apply_diff_patch`/`apply_full_patch`, `JobScheduler`, `ProgramDatabase` (read-only). Only `EvolutionRunner` is tightly coupled as the orchestrator.
+| ID | Name | Context | Gradient | Description |
+|----|------|---------|----------|-------------|
+| A | Static | Fixed prompt | No | Baseline LLM |
+| B | +ACE | Evolving playbook | No | ACE context engineering |
+| C | +Gradient | Fixed prompt | wp.Tape() | SGA-style inner loop |
+| D | +ACE+Gradient | Evolving playbook | wp.Tape() | Full system |
+| E | DrSR-style | Idea library (P/N/I) | No | Direct comparison to DrSR |
+| F | PySR | N/A | N/A | Symbolic regression baseline |
+| R | Random | N/A | No | Random expression baseline |
+
+### Configuration
+
+`CampaignConfig` in `src/campaign/config.py`:
+- Currently uses `hyperbolic/openai/gpt-oss-20b` (cheap PoC model, ~$6 for full campaign)
+- Production: switch to `gpt-4o-mini` or `gpt-4.1-nano`
+- 100 rounds per run, 5 points per round, 3 seeds
+- Budget: $20 total, $1 per run (adjustable)
+- Results stored in SQLite (`src/results/campaign.sqlite`)
+
+### Evaluation Criteria
+
+1. **Primary**: ACE (B,D) achieves lower test MSE@100 than static (A,C), p<0.05 paired t-test
+2. **Secondary**: ACE matches or exceeds DrSR (E)
+3. **Tertiary**: Gradient (C,D) improves parameter accuracy over non-gradient (A,B)
+4. **Control**: Zero-shot probe success <20% (confirms non-memorizable)
+5. **Levin Extension**: Strategy profiling, intervention experiment, transfer probe
 
 ---
 
-## ACE — Agentic Context Engineering
+## Notebooks
 
-Framework for LLM self-improvement via evolving "playbooks" — structured knowledge bases of strategies/formulas/insights. Three-agent architecture that preserves domain knowledge across iterations.
+### `search_augmented_ace_poc.ipynb`
 
-### Commands
+Self-contained Colab notebook comparing search strategies for evolving ACE playbooks on GSM8K with local Qwen2.5-7B via vLLM on A100.
 
-```bash
-cd ace && pip install -r requirements.txt
-python -m eval.finance.run --task_name finer --mode offline --save_path results
-python -m eval.finance.run --task_name finer --mode online --save_path results
-python -m eval.finance.run --task_name finer --mode eval_only \
-    --initial_playbook_path results/best_playbook.txt --save_path test_results
-```
+**14 conditions** (expanded from original 3):
+- Greedy ACE, Majority Vote, Best-of-N, Thompson Sampling, UCB Bandit
+- PUCT-ACE (tree search), AB-MCTS, Discounted MCTS
+- ES-ACE (evolutionary), Beam Search, and more
 
-### Programmatic API
+**Key implementation details**:
+- vLLM serving Qwen2.5-7B-Instruct (`--dtype bfloat16 --gpu-memory-utilization 0.95 --enable-prefix-caching --max-model-len 8192`)
+- Async GPU-optimized patterns via `AsyncOpenAI` + `asyncio.gather()` + `Semaphore(64)`
+- Budget tracking per condition (~150 generation calls each)
+- Bootstrap CI for statistical comparisons
 
-**ACE orchestrator** (`ace/ace.py`):
-```python
-from ace import ACE
-ace = ACE(
-    api_provider="openai",           # "sambanova", "together", "openai"
-    generator_model="gpt-4",
-    reflector_model="gpt-4",
-    curator_model="gpt-4",
-    max_tokens=4096,
-    initial_playbook=None,           # Optional starting playbook string
-    use_bulletpoint_analyzer=True,
-    bulletpoint_analyzer_threshold=0.90,
-)
-results = ace.run(
-    mode="offline",                  # "offline", "online", "eval_only"
-    train_samples=train_data,        # List[Dict] with context/question/target
-    val_samples=val_data,
-    test_samples=test_data,
-    data_processor=processor,        # Your DataProcessor instance
-    config={
-        'num_epochs': 2, 'max_num_rounds': 3, 'curator_frequency': 1,
-        'eval_steps': 100, 'save_steps': 50, 'token_budget': 80000,
-        'test_workers': 20, 'save_dir': './results',
-    },
-)
-# results['training_results']['best_validation_accuracy']
-# results['final_test_results']['accuracy']
-```
+### `verified_archetype_discovery_poc.ipynb`
 
-**Generator** — answer production (`ace/core/generator.py`):
-```python
-from ace.core import Generator
-gen = Generator(api_client, "openai", "gpt-4", max_tokens=4096)
-response, bullet_ids, call_info = gen.generate(
-    question="...", playbook=playbook_str, context="", reflection="(empty)"
-)
-# bullet_ids: list of playbook IDs used (e.g., ["str-00001", "calc-00003"])
-```
-
-**Reflector** — output analysis (`ace/core/reflector.py`):
-```python
-from ace.core import Reflector
-ref = Reflector(api_client, "openai", "gpt-4")
-reflection, bullet_tags, call_info = ref.reflect(
-    question="...", reasoning_trace=response, predicted_answer="4",
-    ground_truth="4", environment_feedback="Correct",
-    bullets_used=formatted_bullets, use_ground_truth=True,
-)
-# bullet_tags: [{"id": "calc-00001", "tag": "helpful"}]
-```
-
-**Curator** — playbook evolution (`ace/core/curator.py`):
-```python
-from ace.core import Curator
-cur = Curator(api_client, "openai", "gpt-4")
-updated_playbook, next_id, operations, call_info = cur.curate(
-    current_playbook=playbook_str, recent_reflection=reflection,
-    question_context="...", current_step=1, total_samples=100,
-    token_budget=80000, playbook_stats=stats, next_global_id=42,
-)
-# operations: [{"type": "ADD", "section": "...", "content": "...", "reason": "..."}]
-```
-
-**BulletpointAnalyzer** — semantic dedup (`ace/core/bulletpoint_analyzer.py`):
-```python
-from ace.core import BulletpointAnalyzer
-analyzer = BulletpointAnalyzer(client, "gpt-4", embedding_model_name='all-mpnet-base-v2')
-processed = analyzer.analyze(playbook_str, threshold=0.90, merge=True)
-```
-
-**Playbook utilities** (`playbook_utils.py`):
-```python
-from playbook_utils import parse_playbook_line, update_bullet_counts, apply_curator_operations, get_playbook_stats, extract_playbook_bullets
-```
-
-**LLM wrapper** (`llm.py`):
-```python
-from llm import timed_llm_call
-response, call_info = timed_llm_call(client, "openai", "gpt-4", prompt, role="generator", call_id="gen-1")
-```
-
-### Extending to New Domains
-
-Implement a `DataProcessor` with 3 methods (see `EXTENDING_ACE.md`):
-```python
-class DataProcessor:
-    def process_task_data(self, raw_data) -> List[Dict]:  # → {"context","question","target"}
-    def answer_is_correct(self, predicted, ground_truth) -> bool
-    def evaluate_accuracy(self, predictions, ground_truths) -> float
-```
-
-### Playbook Format
-
-```
-## STRATEGIES & INSIGHTS
-[str-00001] helpful=5 harmful=0 :: Always verify data types before processing
-
-## FORMULAS & CALCULATIONS
-[calc-00003] helpful=8 harmful=0 :: NPV = Σ(Cash Flow / (1+r)^t)
-```
-
-Curator operations: ADD, UPDATE, MERGE, DELETE. Token budget enforced (~80K default).
+Game of 24 verification task with vLLM integration and async parallel evaluation.
 
 ---
 
-## Newton — GPU-Accelerated Physics Simulation Engine
+## Key Literature & References
 
-Built on NVIDIA Warp + MuJoCo Warp. Linux Foundation project (v0.2.0 beta).
+### Core Papers (Experiment Design)
 
-### Commands
+| Paper | Key Insight | Relevance |
+|-------|------------|-----------|
+| [PhysGym](https://arxiv.org/abs/2507.15550) (2025) | LLMs fail at interactive experiment design | Motivates our loop design |
+| [SGA](https://arxiv.org/abs/2405.09783) (ICML 2024) | LLM+Warp bilevel optimization | Conditions C, D (gradient inner loop) |
+| [NewtonBench](https://arxiv.org/abs/2510.07172) (2025) | Counterfactual physics taxonomy (Levels 1-3) | Our environment difficulty calibration |
+| [DrSR](https://arxiv.org/abs/2506.04282) (2025) | Idea library for symbolic regression (99.94% vs 7.62%) | Condition E (direct comparison) |
+| [LLM-SR](https://arxiv.org/abs/2404.18400) (ICLR 2025) | Equations as programs + evolutionary search | Background |
+| [LLM-SRBench](https://arxiv.org/abs/2504.10415) (ICML 2025) | 239 SR problems, best 31.5% symbolic accuracy | Calibrates expectations |
+| [ACE](https://arxiv.org/abs/2510.04618) (2025) | Generator/Reflector/Curator with playbook evolution | Core framework for conditions B, D |
+| [Dynamic Cheatsheet](https://arxiv.org/abs/2504.07952) (2025) | Test-time evolving memory, Claude 3.5 23%→50% AIME | ACE precursor / parallel work |
 
-```bash
-cd newton && uv sync --extra examples
-uv run -m newton.examples basic_pendulum
-uv run --extra dev -m newton.tests
-uv run --extra dev -m newton.tests.test_examples -k test_basic.example_basic_shapes
-uvx pre-commit run -a                                  # Lint (Ruff + Typos)
-```
+### Verification & Small-Model-Big-Performance (Future Directions)
 
-### Programmatic API
+| Paper | Key Insight | How It Applies |
+|-------|------------|----------------|
+| [Weaver](https://arxiv.org/abs/2506.18203) (NeurIPS 2025) | Aggregate weak verifiers via Dawid-Skene, distill to 400M model retaining 98.7% accuracy at 0.03% compute | Makes verification essentially free — unlocks cheap generate→verify→curate loop |
+| [REBASE](https://arxiv.org/abs/2408.00724) (ICLR 2025) | PRM-guided tree search, Pareto-optimal at all budgets; 7B beats 34B | Simpler alternative to PUCT for playbook tree search |
+| [rStar-Math](https://arxiv.org/abs/2501.04519) (ICML 2025) | 3.8B model beats o1-preview via self-evolved MCTS+PRM | Proof that small model + good verification + tree search = big model performance |
+| [ThinkPRM](https://arxiv.org/abs/2504.16828) (2025) | Process reward model using only 1% labels, 7B outperforms full-data discriminative PRMs | Cheap step-level verification |
+| [Scaling Test-Time Compute](https://arxiv.org/abs/2408.03314) (ICLR 2025 Oral) | Adaptive compute allocation per-problem difficulty; 14B matches 4x larger model | Adaptive-N: easy problems get 1-2 samples, hard problems get tree search |
+| [Adaptive Inference-Time Compute](https://arxiv.org/abs/2410.02725) (2024) | Model predicts mid-generation if restarting will help; 74% of 16-sample gain with 1.2 avg samples | Early stopping when confident |
+| [Optimal Stopping vs Best-of-N](https://arxiv.org/abs/2510.01394) (2025) | Optimal stopping reduces generations by 15-35% | Adaptive N via stopping thresholds |
+| [Inference Scaling fLaws](https://arxiv.org/abs/2411.17501) (2024) | Imperfect verifiers impose hard ceilings on resampling | Important negative result — motivates Weaver-style calibrated verification |
+| [GenRM](https://arxiv.org/abs/2408.15240) (ICLR 2025) | Generative verifiers via next-token prediction; fine-tuned 9B surpasses GPT-4 | Chain-of-thought verification as generation |
+| [AB-MCTS / TreeQuest](https://arxiv.org/abs/2503.04412) (Sakana 2025) | Adaptive wider-vs-deeper branching; GEN/CONT node types | Reference implementation for tree search over playbooks |
+| [OPTS](https://arxiv.org/abs/2503.01163) (ACL 2025) | Thompson Sampling for prompt strategy selection; +7% on BBH | Directly applicable to bandit-based playbook strategy selection |
+| [FoVer](https://arxiv.org/abs/2505.15960) (2025) | PRMs via formal verification data; generalizes across 12 benchmarks | Cross-task PRM generalization |
+| [Process Advantage Verifiers](https://arxiv.org/abs/2410.08146) (ICLR 2025) | Reward = progress (advantage); weak prover improves strong policy | Maps to reflector's improvement tagging |
 
-**Core simulation loop pattern:**
-```python
-import newton
+### Theoretical Foundations
 
-# Build scene
-builder = newton.ModelBuilder()
-body = builder.add_body(xform=..., key="box")
-builder.add_shape_box(body, hx=0.5, hy=0.5, hz=0.5)
-joint = builder.add_joint_revolute(parent=-1, child=body, axis=(0,0,1))
-builder.add_articulation([joint])
-builder.add_ground_plane()
-model = builder.finalize()
-
-# Create dynamics objects
-state_0, state_1 = model.state(), model.state()
-control = model.control()
-newton.eval_fk(model, model.joint_q, model.joint_qd, state_0)
-
-# Solver + collision
-solver = newton.solvers.SolverXPBD(model, iterations=10)
-collision_pipeline = newton.CollisionPipelineUnified()
-
-# Step loop
-for frame in range(num_frames):
-    state_0.clear_forces()
-    contacts = model.collide(state_0, collision_pipeline=collision_pipeline)
-    for _ in range(substeps):
-        solver.step(state_0, state_1, control, contacts, dt)
-        state_0, state_1 = state_1, state_0
-```
-
-**Key classes:**
-- `ModelBuilder` — scene construction: `add_body()`, `add_shape_*()` (sphere/box/capsule/cylinder/mesh/plane), `add_joint_*()` (revolute/prismatic/ball/fixed/free/d6/distance/cable), `add_articulation()`, `add_particle()`, `add_spring()`, `finalize()`
-- `Model` — immutable scene: `state()`, `control()`, `collide()`, `set_gravity()`
-- `State` — time-varying: `particle_q/qd/f`, `body_q/qd/f`, `joint_q/qd`, `clear_forces()`
-- `Control` — inputs: `joint_f`, `joint_target_pos/vel`, `tri_activations`, `clear()`
-- `Contacts` — collision data: `rigid_contact_count`, `rigid_contact_point0/1`, `rigid_contact_normal`
-
-**Solvers** (`newton.solvers`): `SolverXPBD` (general), `SolverVBD` (cloth), `SolverFeatherstone` (articulated), `SolverMuJoCo` (MuJoCo backend), `SolverSemiImplicit`, `SolverStyle3D`, `SolverImplicitMPM`. All share `solver.step(state_0, state_1, control, contacts, dt)`.
-
-**Other APIs:**
-- `newton.geometry` — collision detection (`BroadPhaseSAP`, `collide_*` functions), mesh utilities, SDF, terrain generation
-- `newton.sensors` — `SensorContact`, `SensorIMU`, `SensorRaycast`, `SensorTiledCamera`, `SensorFrameTransform`
-- `newton.ik` — `IKSolver` with `IKPositionObjective`, `IKRotationObjective`, `IKJointLimitObjective`
-- `newton.viewer` — `ViewerGL`, `ViewerRerun`, `ViewerUSD`, `ViewerViser`, `ViewerNull`
-- `newton.usd` — USD file import/export utilities
-
-### Key Rules
-
-- `newton/_src/` is **internal only** — never import from it in user code or examples
-- Any user-facing class in `_src` must be re-exported via public modules
-- Prefix-first naming: `ActuatorPD` not `PDActuator`, `add_shape_sphere()` not `add_sphere_shape()`
-- `snake_case` methods, `kebab-case` CLI args, Google-style docstrings
-- Run `uvx pre-commit run -a` before committing
-- New examples: follow `Example` class pattern, implement `test_final()`, register in `README.md`
+| Paper | Key Insight |
+|-------|------------|
+| [Rate-Distortion for Prompt Compression](https://arxiv.org/abs/2407.15504) (NeurIPS 2024) | Fundamental limits of compressing prompts; large gap between current methods and optimum |
+| [Certified Self-Consistency](https://arxiv.org/abs/2510.17472) (2025) | Unifies self-consistency and TTRL; Martingale stopping rule; builds on Condorcet's theorem |
+| [Information-Theoretic ICL](https://arxiv.org/abs/2401.15530) (ICML 2024) | Decomposes ICL error into irreducible + meta-learning + intra-task |
+| [Self-Verification Limitations](https://arxiv.org/abs/2402.08115) (2024) | LLM self-critique fails; external verification exploits actual NP gap |
+| [Can 1B Surpass 405B?](https://arxiv.org/abs/2502.06703) (2025) | With compute-optimal TTS, 0.5B outperforms GPT-4o, 3B surpasses 405B on MATH |
 
 ---
 
-## Cross-Project Integration: ShinkaEvolve + ACE Hybrid
+## Future Direction: Cheap Verification Unlocks the Full Loop
 
-The two frameworks are complementary and composable at specific interfaces:
+The strategic direction: **small model with performance of big models** via cheap, high-quality verification.
 
-### Where ACE fits inside ShinkaEvolve
+### The Architecture
 
-**ACE's playbook as ShinkaEvolve's task system message.** ShinkaEvolve's `EvolutionConfig.task_sys_msg` is the prompt that guides LLM mutations. Instead of a static string, use an ACE playbook that evolves based on which mutation strategies produce better programs:
-
-```python
-# ACE's Reflector tags which mutation strategies (playbook bullets) led to
-# score improvements; Curator evolves the task_sys_msg between generations
-reflector.reflect(
-    question=f"Mutate program for {task}",
-    reasoning_trace=llm_patch_output,
-    predicted_answer=str(child_score),
-    ground_truth=str(parent_score),  # or best-known score
-    environment_feedback="Improved" if child_score > parent_score else "Regressed",
-    bullets_used=extracted_strategy_bullets,
-)
+```
+┌─────────────────────────────────────────────────────────┐
+│  Small Generator (7B)                                    │
+│  Generates 8-16 candidates with evolving cheatsheet      │
+│  in context (ACE playbook / Dynamic Cheatsheet)          │
+└──────────────┬──────────────────────────────────────────┘
+               │ candidates
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│  Distilled Verifier (400M, Weaver-style)                 │
+│  Scores candidates for near-zero cost                    │
+│  Trained via weak verifier ensemble + Dawid-Skene        │
+│  Retains 98.7% of full ensemble accuracy                 │
+└──────────────┬──────────────────────────────────────────┘
+               │ high-confidence solutions only
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│  Cheatsheet Curator (ACE Curator)                        │
+│  Compresses key insight from verified solution back      │
+│  into the evolving playbook/cheatsheet                   │
+│  20-50 strategies at the right abstraction level         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Integration points:**
-1. **PromptSampler ↔ ACE Generator**: Replace static prompt templates with playbook-conditioned generation. ACE's Generator already formats prompts with playbook context.
-2. **Program.text_feedback ↔ ACE Reflector**: ShinkaEvolve already stores `text_feedback` per program. Feed this to ACE's Reflector for structured tagging.
-3. **Meta-recommendations ↔ ACE Curator**: ShinkaEvolve has `meta_rec_interval` for periodic strategy updates via a meta-LLM. ACE's Curator is a more structured version of this — replaces the meta-LLM with ADD/UPDATE/MERGE/DELETE operations on a playbook.
-4. **ProgramDatabase ↔ ACE playbook persistence**: Store playbook snapshots alongside generations in SQLite. Track playbook version that produced each program.
+### Why This Is Near-Optimal
 
-### Where ShinkaEvolve fits inside ACE
+Each component operates at its information-theoretic boundary:
 
-**Evolve ACE's prompts/playbook structure.** Use ShinkaEvolve to optimize the prompt templates in `ace/prompts/` or the playbook section structure itself:
+1. **Verification ensemble → Condorcet's jury theorem**: Many independent weak verifiers with p>0.5 accuracy → exponential error decay in number of verifiers. Weaver proves this works in practice with Dawid-Skene latent variable estimation.
 
-```python
-# The "program" being evolved is the ACE prompt template or playbook schema
-# The "evaluation" is ACE's validation accuracy on a held-out set
-evo_config = EvolutionConfig(
-    task_sys_msg="Improve the ACE generator prompt template...",
-    init_program_path="ace/prompts/generator.py",
-)
-```
+2. **Distillation works because verification < generation** (co-NP vs NP argument): Checking a solution is fundamentally simpler than generating one. A 400M model can learn to verify what a 70B model generates. (Caveat: LLM self-verification does NOT exploit this gap — you need external/trained verifiers.)
 
-### Newton as evaluation environment
+3. **Cheatsheet converges on rate-distortion bound**: The playbook/cheatsheet compresses the problem distribution into 20-50 strategies at the right abstraction level. Rate-distortion theory ([arXiv:2407.15504](https://arxiv.org/abs/2407.15504)) formalizes this — steep initial gains from adding strategies, diminishing returns after saturation.
 
-Newton can serve as the evaluation function for either framework when evolving robot controllers or physics algorithms:
+### The Two Gaps to True Optimality
 
-```python
-# ShinkaEvolve evaluates evolved programs by running them in Newton
-# JobScheduler.run() executes a script that: builds scene → runs policy → returns score
-```
+**Gap 1: Step-level verification** — Current system verifies final answers only (generate-and-select). True optimality requires pruning at each reasoning step (tree search, not just best-of-N). Papers:
+- [ThinkPRM](https://arxiv.org/abs/2504.16828): Process reward models using only 1% labels
+- [REBASE](https://arxiv.org/abs/2408.00724): PRM-guided tree search, Pareto-optimal at all budgets
+- [rStar-Math](https://arxiv.org/abs/2501.04519): 3.8B with self-evolved PRM beats o1-preview
+- [Process Advantage Verifiers](https://arxiv.org/abs/2410.08146): Reward = progress (advantage function)
+
+**Gap 2: Adaptive N** — Stop generating when confidence is high, flag as gap when confidence stays low. Easy problems cost nothing, impossible ones get caught early. Papers:
+- [Scaling Test-Time Compute](https://arxiv.org/abs/2408.03314): 4x compute savings via difficulty-adaptive allocation
+- [Adaptive Inference-Time Compute](https://arxiv.org/abs/2410.02725): 74% of 16-sample gain with 1.2 avg samples
+- [Optimal Stopping vs Best-of-N](https://arxiv.org/abs/2510.01394): 15-35% fewer generations via stopping thresholds
+- [Certified Self-Consistency](https://arxiv.org/abs/2510.17472): Martingale stopping rule with statistical guarantees
+
+### Applying to Grounded Discovery
+
+For the equation discovery experiment specifically:
+1. **Generator**: Small model (7B) proposes equations with ACE playbook in context
+2. **Verifier**: Distilled verifier scores equation quality (MSE prediction, structural plausibility). For equation discovery, MSE on held-out data IS the verifier — no need for a learned one. But for the LLM reasoning steps (experiment design, hypothesis generation), a trained PRM could help.
+3. **Adaptive N**: Generate more equation candidates for hard environments (Tier 2), fewer for easy ones (Tier 1). Stop early when MSE is already low.
+4. **Step-level verification**: Instead of scoring complete equations, score intermediate reasoning steps — "is this functional form choice promising?" before spending compute on parameter fitting.
+5. **Cheatsheet**: ACE curator compresses verified insights back into playbook. Only high-confidence, MSE-improving strategies survive.
+
+### Important Caveats
+
+- [Inference Scaling fLaws](https://arxiv.org/abs/2411.17501): Imperfect verifiers impose hard ceilings. Weaver's calibrated ensemble addresses this, but ceiling still exists.
+- [CJT Independence Violation](https://arxiv.org/abs/2409.00094): LLM verifiers sharing training data violate Condorcet independence assumption. Weaver addresses via filtering + weighted aggregation.
+- [Self-Verification Limitations](https://arxiv.org/abs/2402.08115): LLM self-critique adds nearly no value. The verifier must be a separately trained model or use formal/automated checking.
+- The co-NP argument has limits: verifying *absence* of errors (safety) is fundamentally harder than verifying *presence* of a solution. For equation discovery, we mostly need the NP version (does this equation fit?), so the gap is exploitable.
+
+---
+
+## Cross-Project Integration (ShinkaEvolve + ACE)
+
+The two frameworks are complementary and composable:
+
+1. **ACE playbook as ShinkaEvolve's task_sys_msg** — evolves mutation strategies based on which approaches improve fitness
+2. **Program.text_feedback ↔ ACE Reflector** — structured helpful/harmful tagging
+3. **Meta-recommendations ↔ ACE Curator** — replaces free-form meta-LLM with ADD/UPDATE/MERGE/DELETE operations
+4. **ProgramDatabase ↔ playbook persistence** — store playbook snapshots alongside generations in SQLite
+
+Newton serves as evaluation environment when evolving robot controllers or physics algorithms.
+
+---
 
 ## Session Notes
 
-- **Thompson Sampling in search_augmented_ace_poc.ipynb**: Budget docstring was wrong (said 99, actual is 105 calls). Fixed. The Beta-Bernoulli conjugate update and argmax-of-samples selection are textbook correct. Key limitation: fixed pool after seed phase means no online adaptation. Consider discounted TS (gamma=0.95) if bullet tag drift matters, and dynamic arm addition for longer runs.
-- **PUCT backprop bug**: When expanding a node, `backprop(child, reward)` gave the child credit for reward earned by the parent's playbook evaluation. Fixed: always backprop to the leaf (the node whose playbook was actually evaluated). New children start with optimistic Q=0.5 prior.
-- **PUCT Bayesian Q-estimator**: Uses `(s+1)/(n+2)` which is correct Beta posterior mean for binary rewards, but reward_history contains fractional batch accuracies (e.g., 0.67). Still works as a shrinkage estimator but isn't a proper Beta posterior. Document this if publishing.
-- **Progressive widening k=1**: Standard PW uses `k * N^alpha` with k=10. Our k=1 is deliberately conservative since each expansion costs a curate call. This is a justified design choice, not a bug.
-- **Frontier strategies to consider**: AB-MCTS (adaptive wider-vs-deeper branching, Sakana AI 2025), Process Reward Models for compute-optimal tree search (ICLR 2025), Fetch state-merging for dedup of semantically similar playbook nodes, OPTS bandit-based prompt strategy selection (March 2025).
-- **Discounted TS timing bug**: The discount step (`alpha *= gamma`) is applied BEFORE the posterior update. Standard non-stationary bandit literature (arXiv:2305.10718) applies discounting AFTER the update. Also, floor of 1.0 is too high — use 0.1 to allow proper forgetting. Fix: move discount loop after `alphas[chosen] += 1` / `betas_param[chosen] += 1`.
-- **AB-MCTS deviates from Sakana paper**: Our implementation uses regret-based Beta updates (expand_alpha/expand_beta), while Sakana's original (arXiv:2503.04412) uses separate GEN/CONT node types with backed-up score distributions. Key issue: when deepening fails, we increment expand_alpha (assuming expansion would have helped) — this is a counterfactual assumption without evidence. The "deeper+regress → should have expanded" logic is questionable. Consider renaming to "Adaptive Progressive Widening" or fixing credit assignment.
-- **vLLM GPU optimization for Colab A100**: Colab provides A100 **40GB** (not 80GB). Optimal vLLM config for Qwen2.5-7B: `--dtype bfloat16 --gpu-memory-utilization 0.90 --max-num-seqs 1024 --max-num-batched-tokens 16384 --enable-prefix-caching --max-model-len 8192`. Enable prefix caching since playbook system prompts are shared across problems (~13% throughput gain). Use `AsyncOpenAI` with `asyncio.gather()` and `Semaphore(64)` for concurrent requests — achieves ~3000 tok/s vs ~200 tok/s sequential. Alternative: use `from vllm import LLM` offline batch API to eliminate HTTP overhead entirely.
-- **Parallelization strategies by condition**: (1) Majority Vote: fire all 100 generate calls via asyncio.gather — no dependencies. (2) Thompson: evaluate all arms on same problem in parallel (6-10 concurrent generates). (3) PUCT: use virtual loss for parallel leaf selection (K=8 leaves), batch evaluate all K×3 problems in one vLLM call. (4) Greedy ACE: batch 5 generate+reflect calls between curate intervals. Expected speedup: 5-10x across all conditions.
-- **Virtual loss for parallel PUCT**: Add `virtual_loss_count` to MCTSNode. During PUCT selection, increment virtual loss on selected nodes to discourage other parallel workers from choosing same path. Effective Q becomes `(Q*N) / (N + virtual_loss_count)`. Remove virtual loss and add real reward on backprop. Scales to ~32x parallelism (proven in AlphaGo). See arXiv:1902.04522 (ELF OpenGo).
-- **Variance-aware PUCT** (arXiv:2512.21648, Dec 2025): "Inverse-RPO" methodology outperforms standard PUCT by incorporating variance estimates into exploration. Consider adding a 4th Q-estimator mode.
-- **Notebook environment gaps**: No dependency pinning (pip install without versions), no intermediate checkpoints (crash = lost work), no input validation on GSM8K data. Add: version pins, pickle RunLog after each condition, assert on data quality.
-- **4 new conditions added (14 total)**: Best-of-N (rejection sampling baseline, same budget as MajVote), Beam Search (width=3, the "missing link" between Greedy and MCTS), UCB Bandit (deterministic UCB1 counterpart to Thompson, isolates randomness variable), Discounted MCTS (gamma=0.95 inside tree nodes, addresses non-stationarity in PUCT). All use async GPU-optimized patterns: Best-of-N fires all 100 calls via asyncio.gather, Beam evaluates all K beams in parallel, UCB uses per-problem async gen+ref, Disc-MCTS uses _eval_leaf_async.
-- **Beam Search budget tradeoff**: Beam width=3 evaluates all K beams on every batch, so total budget is ~327 calls (higher than other conditions). The tradeoff is breadth of exploration vs total compute. This is intentional — beam search's value proposition is simplicity, not budget efficiency.
-- **UCB vs Thompson design**: UCB1 uses c=sqrt(2) (standard Auer et al. 2002). Same seed/pool structure as Thompson for fair comparison. Key difference: UCB is deterministic (always picks highest upper bound), Thompson is stochastic (samples from posteriors). At 50 problems with 6 arms, UCB may over-exploit early due to limited exploration budget.
-- **Runtime optimization (Feb 2026)**: The notebook's main bottleneck was synchronous `curate()` calls blocking the event loop (~154 calls at ~0.8s each). Fix: added `curate_async()` using `llm_call_async` with `max_tokens=256`. Also parallelized seed-phase curate loops with `asyncio.gather()` (Thompson, UCB, Beam Search seed phases now curate all variants in parallel). Additional: reduced default `max_tokens` 1024→512 (GSM8K answers are short), bumped `gpu-memory-utilization` 0.90→0.95. AWQ quantization NOT recommended for A100 40GB — model already fits in 14GB, dequantization overhead hurts throughput. Expected speedup: 3-5x from async curate alone.
-- **PUCT verification (Feb 2026)**: Core PUCT formula verified correct vs AlphaZero. Virtual loss correctly implemented. Progressive widening k=1 justified. Bayesian Q-estimator `(s+1)/(n+2)` works as shrinkage estimator but is NOT a proper Beta posterior for continuous rewards — document as "Beta-inspired shrinkage." AB-MCTS credit assignment remains questionable (counterfactual assumption). Consider REBASE (ICLR 2025) for compute-optimal expansion, Sakana's treequest (github.com/SakanaAI/treequest) for proper AB-MCTS implementation.
+### Notebook Implementation Notes
+
+- **Thompson Sampling in search_augmented_ace_poc.ipynb**: Budget docstring was wrong (said 99, actual is 105 calls). Fixed. Beta-Bernoulli conjugate update and argmax-of-samples selection are textbook correct. Key limitation: fixed pool after seed phase means no online adaptation.
+- **PUCT backprop bug (fixed)**: `backprop(child, reward)` gave the child credit for the parent's playbook evaluation. Fix: always backprop to the leaf whose playbook was actually evaluated.
+- **PUCT Bayesian Q-estimator**: Uses `(s+1)/(n+2)` — correct Beta posterior mean for binary rewards, but reward_history contains fractional batch accuracies. Works as shrinkage estimator but is NOT a proper Beta posterior for continuous rewards. Document as "Beta-inspired shrinkage."
+- **Progressive widening k=1**: Standard PW uses k=10. Our k=1 is deliberately conservative since each expansion costs a curate call. Justified design choice.
+- **AB-MCTS deviation from Sakana paper**: Our implementation uses regret-based Beta updates; Sakana's original ([arXiv:2503.04412](https://arxiv.org/abs/2503.04412)) uses separate GEN/CONT node types with backed-up score distributions. Credit assignment issue: "deeper+regress → should have expanded" is a counterfactual assumption without evidence. Reference implementation: [github.com/SakanaAI/treequest](https://github.com/SakanaAI/treequest).
+- **Discounted TS timing bug (fixed)**: Discount applied BEFORE posterior update; should be AFTER per arXiv:2305.10718. Floor reduced from 1.0 to 0.1.
+- **14 conditions total**: Greedy, MajVote, Best-of-N, Thompson, UCB, PUCT, AB-MCTS, Discounted MCTS, ES, Beam Search, and more.
+
+### Performance Optimization Notes
+
+- **vLLM GPU config for Colab A100 (40GB)**: `--dtype bfloat16 --gpu-memory-utilization 0.95 --max-num-seqs 1024 --max-num-batched-tokens 16384 --enable-prefix-caching --max-model-len 8192`. Prefix caching gives ~13% throughput gain. AWQ quantization NOT recommended — model fits in 14GB, dequantization overhead hurts.
+- **Async optimization (Feb 2026)**: Main bottleneck was synchronous `curate()` calls (~154 calls at ~0.8s each). Fix: `curate_async()` with `llm_call_async`, `max_tokens=256`. Parallelized seed-phase curate loops. Expected 3-5x speedup.
+- **Parallelization by condition**: MajVote: all 100 via asyncio.gather. Thompson: all arms in parallel. PUCT: virtual loss for K=8 parallel leaves. Greedy: batch 5 gen+ref calls between curate intervals.
+- **Virtual loss for parallel PUCT**: `virtual_loss_count` on MCTSNode. Effective Q = `(Q*N)/(N+virtual_loss_count)`. Scales to ~32x parallelism (AlphaGo-proven). See arXiv:1902.04522.
+
+### Design Considerations
+
+- **Beam Search budget**: Width=3 evaluates all K beams on every batch → ~327 calls (higher than other conditions). Intentional tradeoff: breadth vs budget.
+- **UCB vs Thompson**: UCB1 uses c=sqrt(2) (Auer et al. 2002). Same seed/pool for fair comparison. UCB is deterministic, Thompson stochastic. With 50 problems and 6 arms, UCB may over-exploit.
+- **Variance-aware PUCT** (arXiv:2512.21648, Dec 2025): Inverse-RPO incorporates variance estimates. Consider as 4th Q-estimator mode.
+- **REBASE as alternative to PUCT**: Simpler, Pareto-optimal at all budgets, avoids exploration-exploitation complexity. Worth implementing as a condition.
