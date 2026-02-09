@@ -27,10 +27,11 @@ This repository investigates **verification-driven reasoning** and **self-improv
 
 ### Current Experiments
 
-| Notebook | Domain | Status |
-|----------|--------|--------|
+| Experiment | Domain | Status |
+|------------|--------|--------|
 | `notebooks/search_augmented_ace_poc.ipynb` | GSM8K (50 problems) | Complete - 14 conditions ablated |
 | `notebooks/verified_archetype_discovery_poc.ipynb` | Game of 24 | Complete - archetype pipeline verified |
+| `experiments/dc_vs_verification/` | AIME 2024 (30 problems) | Complete - 4 conditions × 3 seeds |
 
 ### Preliminary Results (Search-Augmented ACE on GSM8K)
 
@@ -44,6 +45,21 @@ This repository investigates **verification-driven reasoning** and **self-improv
 | Thompson | 70.00% | 105 |
 
 **Key Finding**: Simple baselines (UCB, Majority Vote) achieve competitive performance at standard budget. Sophisticated search (PUCT variants) plateau at 75-80%, suggesting the bottleneck is coverage of strategy space, not search sophistication.
+
+### DC vs Verification Results (AIME 2024)
+
+| Condition | Accuracy | Budget |
+|-----------|----------|--------|
+| DC + Outcome Verification | 17.8% | N=8 + verify |
+| Dynamic Cheatsheet (DC) | 16.7% | N=8 |
+| Self-Consistency (N=16) | 14.4% | N=16 |
+| Baseline (CoT Pass@1) | 13.3% | N=1 |
+
+**Key Finding**: Verification adds only +1.1% over DC alone (Path A: verifier over-engineered). DC vs Self-Consistency gap is +2.2% (compute-neutral). Both DC variants degrade over time (27%→17%), indicating playbook poisoning. Oracle analysis shows ~10% selection gap — correct answers exist among candidates but aren't selected.
+
+### Verified Archetype Discovery Results (Game of 24)
+
+**Key Finding**: 4 curated archetypes = 3.6x improvement (3%→11%). 10 archetypes = back to baseline. The verifier was the bottleneck (rejected all archetypes at threshold 0.3). Concept validated but automated verification pipeline needs calibration.
 
 ---
 
@@ -111,3 +127,10 @@ See `KNOWLEDGE.md` for detailed technical insights on:
 - Thompson Sampling and bandit algorithms
 - vLLM GPU optimization patterns
 - Async parallelization strategies
+
+### Gotchas Discovered
+
+- **vLLM/torch version chain**: vLLM pins exact torch versions (0.12.0→torch 2.9.0, 0.10.2→torch 2.8.0). Never pin `torch` independently when using vLLM — let vLLM's dependency pull the correct version.
+- **`re.findall` with capturing groups**: `re.findall(r"\[(str|err)-\d{5}\]", text)` returns `['str']` not `['str-00001']`. Use non-capturing inner group: `r"\[((?:str|err)-\d{5})\]"` to capture the full match minus brackets.
+- **GRPO confidence-weighted rewards**: Soft rewards (0.0-1.0 from majority vote confidence) dilute gradient signal vs binary 1.0/0.0. At low confidence (~1/N), reward std becomes tiny → advantage explosion. TTRL paper uses binary rewards; stick with binary.
+- **flash-attn wheels**: No prebuilt wheels for torch >= 2.7. Omit flash-attn when using vLLM ≥ 0.12 (it handles attention internally). If needed, build from source with `--no-build-isolation`.
