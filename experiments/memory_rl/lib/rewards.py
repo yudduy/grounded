@@ -87,9 +87,17 @@ def ace_reward_fn(prompts, completions, *, state: Dict[str, Any], **kwargs) -> l
     if playbook_mgr is None:
         return rewards
 
-    # Look up the ground truth for this prompt
+    # Look up the ground truth for this prompt.
+    # GRPOTrainer passes full chat-templated prompts, but problem_lookup may be
+    # keyed on raw problem text. Try exact match first, then substring fallback.
     prompt_key = prompts[0] if isinstance(prompts, list) else str(prompts)
-    problem_dict = state.get("problem_lookup", {}).get(prompt_key)
+    lookup = state.get("problem_lookup", {})
+    problem_dict = lookup.get(prompt_key)
+    if problem_dict is None:
+        for key, pdict in lookup.items():
+            if key in prompt_key:
+                problem_dict = pdict
+                break
     ground_truth = problem_dict["answer"] if problem_dict else None
     is_correct = check_answer(winner, ground_truth) if ground_truth else False
 
